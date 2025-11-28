@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <title>sline – Ship code from Slack</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta
+    name="description"
+    content="sline connects Slack to your AI coding agent and Git platform so you can plan in threads, ship branches, and iterate on PRs without leaving chat."
+  />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      background: radial-gradient(circle at top left, #0f172a, #020617);
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-50 antialiased">
+  <div class="min-h-screen flex flex-col">
+    <!-- Top notification bar (optional) -->
+    <div class="border-b border-slate-800/80 bg-slate-950/60">
+      <div class="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between gap-3 text-xs text-slate-300">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+            <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Private alpha
+          </span>
+          <span>Slack-native control plane for AI coding agents.</span>
+        </div>
+        <a href="#cta" class="hidden sm:inline text-sky-300 hover:text-sky-200 underline underline-offset-2">
+          Get on the early access list →
+        </a>
+      </div>
+    </div>
+
+    <!-- Nav -->
+    <header class="border-b border-slate-800/50 bg-slate-950/40 backdrop-blur">
+      <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-6">
+        <div class="flex items-center gap-2">
+          <!-- ASSET SLOT: Logo -->
+          <!-- Replace this circle with an actual logo image when you have one -->
+          <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-sky-400 via-emerald-400 to-indigo-500 flex items-center justify-center text-xs font-semibold text-slate-950">
+            sl
+          </div>
+          <div class="flex flex-col">
+            <span class="font-semibold tracking-tight">sline</span>
+            <span class="text-[11px] text-slate-400">Ship code from Slack</span>
+          </div>
+        </div>
+
+        <nav class="hidden md:flex items-center gap-6 text-xs font-medium text-slate-200">
+          <a href="#product" class="hover:text-sky-300">Product</a>
+          <a href="#how-it-works" class="hover:text-sky-300">How it works</a>
+          <a href="#assets" class="hover:text-sky-300">Assets</a>
+          <a href="#use-cases" class="hover:text-sky-300">Use cases</a>
+          <a href="#faq" class="hover:text-sky-300">FAQ</a>
+        </nav>
+
+        <div class="flex items-center gap-2">
+          <a href="#" class="hidden sm:inline text-xs text-slate-300 hover:text-sky-300">View on GitHub</a>
+          <a
+            href="#cta"
+            class="inline-flex items-center gap-1 rounded-full border border-sky-500/70 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-100 hover:bg-sky-500/20"
+          >
+            Get early access
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="flex-1">
+      <!-- Hero -->
+      <section id="product" class="max-w-6xl mx-auto px-4 pt-10 pb-16">
+        <div class="grid lg:grid-cols-[1.05fr,0.95fr] gap-10 items-center">
+          <!-- Hero copy -->
+          <div>
+            <div class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900/80 px-2.5 py-1 text-[11px] text-slate-300 mb-4">
+              <span class="h-1.5 w-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+              <span>Slack interface · Cline runner · Git-native PRs</span>
+            </div>
+
+            <h1 class="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight mb-4">
+              Turn Slack threads into
+              <span class="text-sky-400">shipping code</span>.
+            </h1>
+
+            <p class="text-sm sm:text-base text-slate-300 max-w-xl mb-6">
+              <strong>sline</strong> connects your Slack workspace to a dedicated Cline runner service and your Git
+              provider. Plan work in channels, trigger Cline from threads, and get branches, tests, and PRs — without
+              leaving chat.
+            </p>
+
+            <div class="flex flex-wrap gap-3 mb-5">
+              <a
+                href="#cta"
+                class="inline-flex items-center justify-center rounded-full bg-sky-500 px-4 py-2.5 text-sm font-medium text-slate-950 hover:bg-sky-400"
+              >
+                I want this in my Slack
+              </a>
+              <a
+                href="#how-it-works"
+                class="inline-flex items-center justify-center rounded-full border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-100 hover:border-sky-400/80"
+              >
+                See how it works
+              </a>
+            </div>
+
+            <dl class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-md text-xs">
+              <div>
+                <dt class="text-slate-400 mb-0.5">Interface</dt>
+                <dd class="font-medium text-slate-100">Slack (DMs, channels, threads)</dd>
+              </div>
+              <div>
+                <dt class="text-slate-400 mb-0.5">Engine</dt>
+                <dd class="font-medium text-slate-100">Cline runner service</dd>
+              </div>
+              <div>
+                <dt class="text-slate-400 mb-0.5">Code host</dt>
+                <dd class="font-medium text-slate-100">GitLab / GitHub / other</dd>
+              </div>
+            </dl>
+          </div>
+
+          <!-- Hero visual / asset slot -->
+          <div class="relative">
+            <div class="absolute -inset-10 bg-sky-500/10 blur-3xl opacity-70 pointer-events-none"></div>
+            <div class="relative rounded-2xl border border-slate-700 bg-slate-950/80 shadow-xl shadow-sky-900/50 overflow-hidden">
+              <!-- ASSET SLOT: Hero image -->
+              <!-- Replace the placeholder block below with an <img> tag once you have a hero asset -->
+              <!-- Example:
+              <img src="assets/sline-hero.png" alt="sline Slack + PR flow" class="w-full h-full object-cover" />
+              -->
+              <div class="p-4 sm:p-5">
+                <div class="mb-3 flex items-center justify-between text-[11px] text-slate-300">
+                  <span class="inline-flex items-center gap-1">
+                    <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+                    <span>#billing-service</span>
+                  </span>
+                  <span>Slack · sline bot</span>
+                </div>
+
+                <!-- Fake Slack conversation -->
+                <div class="space-y-3 text-xs sm:text-[13px]">
+                  <div class="flex gap-2">
+                    <div class="mt-1 h-6 w-6 rounded-full bg-slate-700 flex items-center justify-center text-[10px]">AB</div>
+                    <div class="flex-1">
+                      <div class="inline-block rounded-2xl bg-slate-800/80 px-3 py-2">
+                        <p class="text-slate-100">
+                          We need a paginated
+                          <span class="font-mono text-[11px]">/v1/invoices</span> endpoint in
+                          <span class="font-mono text-[11px]">billing-api</span>. Can sline handle spec + implementation?
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex gap-2">
+                    <div class="mt-1 h-6 w-6 rounded-full bg-gradient-to-br from-sky-400 to-emerald-400 flex items-center justify-center text-[10px] font-semibold text-slate-950">
+                      sl
+                    </div>
+                    <div class="flex-1 space-y-2">
+                      <div class="inline-block rounded-2xl border border-sky-500/40 bg-sky-500/10 px-3 py-2">
+                        <p class="text-[11px] font-semibold text-slate-100">sline · task created</p>
+                        <p class="mt-1 text-slate-100">
+                          I’ll send this to the Cline runner:
+                        </p>
+                        <ul class="mt-1 list-disc list-inside space-y-0.5 text-slate-100">
+                          <li>Create <span class="font-mono text-[11px]">/v1/invoices</span> handler</li>
+                          <li>Wire repo + pagination logic</li>
+                          <li>Add tests mirroring payments flow</li>
+                          <li>Open PR <span class="font-mono text-[11px]">feature/invoices-status-pagination</span></li>
+                        </ul>
+                      </div>
+
+                      <div class="grid grid-cols-3 gap-2 text-[11px]">
+                        <div class="rounded-lg border border-slate-700 bg-slate-950/80 p-2">
+                          <div class="mb-1 text-slate-400">Slack</div>
+                          <p class="text-slate-100">Threads, specs, approvals.</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-700 bg-slate-950/80 p-2">
+                          <div class="mb-1 text-slate-400">Cline runner</div>
+                          <p class="text-slate-100">Code edits, tests, branches.</p>
+                        </div>
+                        <div class="rounded-lg border border-slate-700 bg-slate-950/80 p-2">
+                          <div class="mb-1 text-slate-400">Git</div>
+                          <p class="text-slate-100">PRs, CI, reviews.</p>
+                        </div>
+                      </div>
+
+                      <div class="mt-1 flex items-center gap-2 text-[11px] text-emerald-300">
+                        <span class="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span>Running on <span class="font-mono">runner-01</span> · tests in progress…</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Placeholder overlay text for hero asset -->
+                <div class="mt-4 rounded-xl border border-dashed border-slate-700/70 bg-slate-900/80 px-3 py-2 text-[11px] text-slate-400">
+                  <!-- ASSET SLOT: Replace this whole box with a real image later if you like -->
+                  Drop your hero mockup here later (screenshot of sline dashboard, Slack + PR side by side, etc).
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- “Built for” row -->
+        <div class="mt-10 border-t border-slate-800/70 pt-5">
+          <p class="mb-3 text-[11px] uppercase tracking-wide text-slate-400">Built for</p>
+          <div class="flex flex-wrap items-center gap-3 text-xs text-slate-300">
+            <span class="inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-3 py-1 border border-slate-700">
+              <span class="h-1.5 w-1.5 rounded-full bg-sky-400"></span> Slack workspaces
+            </span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-3 py-1 border border-slate-700">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> GitLab / GitHub repos
+            </span>
+            <span class="inline-flex items-center gap-1 rounded-full bg-slate-900/80 px-3 py-1 border border-slate-700">
+              <span class="h-1.5 w-1.5 rounded-full bg-indigo-400"></span> Cline runners on AWS
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section class="max-w-6xl mx-auto px-4 pb-14">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-3">What sline does for your team</h2>
+        <p class="mb-6 text-sm sm:text-base text-slate-300 max-w-2xl">
+          sline sits between Slack and your Cline runner so your team can describe work in plain language, then let
+          the agent handle the boilerplate — with branches, tests, and PRs wired into your existing git flow.
+        </p>
+
+        <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <p class="text-xs font-semibold text-sky-300 mb-1">Plan in Slack</p>
+            <h3 class="font-medium mb-1">Threads → specs</h3>
+            <p class="text-slate-300 text-xs">
+              Turn noisy channel threads into structured feature specs with a simple command. sline picks out the endpoints,
+              contracts, and edge cases for Cline.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <p class="text-xs font-semibold text-sky-300 mb-1">Run Cline safely</p>
+            <h3 class="font-medium mb-1">Dedicated runner</h3>
+            <p class="text-slate-300 text-xs">
+              A long-lived Cline runner process handles cloning, editing, and running tests — instead of fragile, short-lived functions.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <p class="text-xs font-semibold text-sky-300 mb-1">Git-native output</p>
+            <h3 class="font-medium mb-1">Branches &amp; PRs</h3>
+            <p class="text-slate-300 text-xs">
+              sline opens or updates PRs in your Git provider, posts links back to Slack, and keeps all changes inspectable and revertible.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <p class="text-xs font-semibold text-sky-300 mb-1">Feedback loop</p>
+            <h3 class="font-medium mb-1">Iterate in-place</h3>
+            <p class="text-slate-300 text-xs">
+              Mention sline in PR comments or threads to trigger follow-up runs — fix review comments, address CI failures, or extend a feature.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section id="how-it-works" class="max-w-6xl mx-auto px-4 pb-16 border-t border-slate-800/70 pt-10">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-3">How sline works under the hood</h2>
+        <p class="mb-6 text-sm sm:text-base text-slate-300 max-w-2xl">
+          Conceptually, sline is a small brain that turns Slack conversations into structured tasks, sends them to a Cline
+          runner, and mirrors the results back into Slack and your Git provider.
+        </p>
+
+        <div class="grid md:grid-cols-4 gap-4 text-sm">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="text-xs font-semibold text-sky-300 mb-1">Step 1</div>
+            <h3 class="font-medium mb-1">Capture context</h3>
+            <p class="text-slate-300 text-xs">
+              sline captures the Slack thread, links, and snippets, turning them into a structured task spec for Cline.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="text-xs font-semibold text-sky-300 mb-1">Step 2</div>
+            <h3 class="font-medium mb-1">Call the runner</h3>
+            <p class="text-slate-300 text-xs">
+              The spec is sent to your Cline runner (via API/WebSocket), along with repo, branch, and constraints.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="text-xs font-semibold text-sky-300 mb-1">Step 3</div>
+            <h3 class="font-medium mb-1">Cline edits code</h3>
+            <p class="text-slate-300 text-xs">
+              Cline modifies files, runs tests, and pushes a feature branch. sline opens or updates the PR and tracks status.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <div class="text-xs font-semibold text-sky-300 mb-1">Step 4</div>
+            <h3 class="font-medium mb-1">Review & refine</h3>
+            <p class="text-slate-300 text-xs">
+              Engineers review in Git, discuss in Slack, and tag sline again to apply fixes on the same branch.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Asset gallery / slots -->
+      <section id="assets" class="max-w-6xl mx-auto px-4 pb-16 border-t border-slate-800/70 pt-10">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-semibold mb-2">Visual assets for sline</h2>
+            <p class="text-sm sm:text-base text-slate-300 max-w-xl">
+              Drop in your own hero mocks, diagrams, and UI screenshots. These slots are wired for simple
+              <span class="font-mono text-xs">img</span> tags so you can iterate on the visuals without touching layout.
+            </p>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4 mb-4">
+          <!-- Hero mock slot -->
+          <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Hero mock</span>
+              <span class="font-mono text-[10px]">assets/sline-hero.png</span>
+            </div>
+            <!-- ASSET SLOT: Hero mock image -->
+            <!-- Replace this box with an <img> when ready -->
+            <div class="aspect-video rounded-xl border border-slate-800 bg-slate-900/80 flex items-center justify-center text-[11px] text-slate-500">
+              Hero image goes here (Slack + PR view).
+            </div>
+          </div>
+
+          <!-- Logo slot -->
+          <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Logo / icon</span>
+              <span class="font-mono text-[10px]">assets/sline-logo.svg</span>
+            </div>
+            <!-- ASSET SLOT: Logo -->
+            <div class="h-32 rounded-xl border border-slate-800 bg-slate-900/80 flex items-center justify-center">
+              <span class="text-[11px] text-slate-500">Logo or wordmark goes here.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid md:grid-cols-2 gap-4">
+          <!-- Slack conversation mock -->
+          <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Slack conversation</span>
+              <span class="font-mono text-[10px]">assets/sline-slack.png</span>
+            </div>
+            <!-- ASSET SLOT: Slack mock -->
+            <div class="aspect-[4/3] rounded-xl border border-slate-800 bg-slate-900/80 flex items-center justify-center text-[11px] text-slate-500">
+              Slack thread mock where sline is responding.
+            </div>
+          </div>
+
+          <!-- Architecture diagram -->
+          <div class="rounded-2xl border border-dashed border-slate-700 bg-slate-950/60 p-4 flex flex-col gap-3">
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>Architecture diagram</span>
+              <span class="font-mono text-[10px]">assets/sline-architecture.png</span>
+            </div>
+            <!-- ASSET SLOT: Architecture diagram -->
+            <div class="aspect-[4/3] rounded-xl border border-slate-800 bg-slate-900/80 flex items-center justify-center text-[11px] text-slate-500">
+              Diagram: Slack → sline → Cline runner → Git provider.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Use cases -->
+      <section id="use-cases" class="max-w-6xl mx-auto px-4 pb-16 border-t border-slate-800/70 pt-10">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-3">Where sline shines first</h2>
+        <p class="mb-6 text-sm sm:text-base text-slate-300 max-w-2xl">
+          You don’t have to automate everything at once. Start with a few flows where humans already talk through work
+          in Slack but the implementation is repetitive.
+        </p>
+
+        <div class="grid md:grid-cols-3 gap-4 text-sm">
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col gap-2">
+            <h3 class="font-medium text-slate-100">New endpoints &amp; CRUD flows</h3>
+            <p class="text-xs text-slate-300">
+              Turn “we need a paginated invoices endpoint” into a task spec, then let Cline scaffold handlers, repos,
+              and tests.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col gap-2">
+            <h3 class="font-medium text-slate-100">Fixing flaky tests &amp; CI</h3>
+            <p class="text-xs text-slate-300">
+              When CI fails, ask sline in the PR thread to debug logs, patch tests, and push a follow-up commit.
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 flex flex-col gap-2">
+            <h3 class="font-medium text-slate-100">Refactors &amp; migrations</h3>
+            <p class="text-xs text-slate-300">
+              Use sline to coordinate multi-file refactors, keeping discussion in channels and changes in git.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- FAQ / CTA -->
+      <section id="faq" class="max-w-6xl mx-auto px-4 pb-16 border-t border-slate-800/70 pt-10">
+        <div class="grid md:grid-cols-[1.1fr,0.9fr] gap-8">
+          <div>
+            <h2 class="text-xl sm:text-2xl font-semibold mb-3">What is sline, exactly?</h2>
+            <div class="space-y-4 text-sm text-slate-300">
+              <div>
+                <p class="font-medium text-slate-100 mb-1">Is this a Slack app, or a Cline wrapper?</p>
+                <p>
+                  Both. sline is a Slack app plus a small orchestration layer that talks to a dedicated Cline runner
+                  service you control. It doesn’t replace your agent — it gives you a way to steer it from Slack.
+                </p>
+              </div>
+              <div>
+                <p class="font-medium text-slate-100 mb-1">Which git providers does it work with?</p>
+                <p>
+                  The concept works with any Git provider that supports branches and PRs (GitLab, GitHub, etc.). The first
+                  integrations will likely focus on GitLab-style APIs.
+                </p>
+              </div>
+              <div>
+                <p class="font-medium text-slate-100 mb-1">Where does the runner live?</p>
+                <p>
+                  You run the Cline runner in your own infra (e.g., AWS Fargate/EC2/K8s). sline just sends structured tasks
+                  and receives status updates.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- CTA card -->
+          <div id="cta" class="rounded-2xl border border-slate-800 bg-slate-950/80 p-5 flex flex-col gap-3">
+            <h3 class="text-lg font-semibold text-slate-50">Want to try sline?</h3>
+            <p class="text-sm text-slate-300">
+              This is an early concept. If you’d actually wire this into your Slack + Git setup, drop your email and a
+              sentence about your stack.
+            </p>
+            <form
+              class="space-y-3 text-xs"
+              onsubmit="event.preventDefault(); alert('Demo form only. Wire this up to your own backend or form tool.');"
+            >
+              <label class="block">
+                <span class="text-slate-300">Work email</span>
+                <input
+                  type="email"
+                  required
+                  placeholder="you@company.com"
+                  class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+              </label>
+              <label class="block">
+                <span class="text-slate-300">What would you use sline for first?</span>
+                <textarea
+                  rows="3"
+                  placeholder="e.g., generating PRs for new endpoints, fixing flaky tests, refactoring services…"
+                  class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                ></textarea>
+              </label>
+              <button
+                type="submit"
+                class="w-full inline-flex items-center justify-center rounded-full bg-sky-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400"
+              >
+                I’d demo sline to my team
+              </button>
+              <p class="text-[11px] text-slate-500">
+                This form is static. Replace the handler with your own endpoint, form tool, or mailto link.
+              </p>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 bg-slate-950/80">
+      <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+        <p class="text-[11px] text-slate-500">
+          sline · A Slack-native interface for Cline runners and git-based workflows.
+        </p>
+        <p class="text-[11px] text-slate-500">
+          Built as an experiment. Clone, fork, and make it your own.
+        </p>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
