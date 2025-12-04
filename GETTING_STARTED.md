@@ -11,18 +11,19 @@ This guide walks you through setting up the complete slack-cline system from scr
 
 ## Overview
 
-You'll be setting up three main components:
+You'll be setting up three main components (all via Docker):
 1. **PostgreSQL Database** - Stores run history and channel mappings
-2. **Cline Core** - The AI agent gRPC server (from the main Cline project)
+2. **Cline Core** - The AI agent gRPC server (compiled in Linux container)
 3. **slack-cline Backend** - FastAPI service that connects Slack to Cline Core
 
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Node.js 18+ (for Cline Core)
-- Python 3.12+ (optional, for local development)
+- Python 3.12+ (for proto compilation only)
 - A Slack workspace where you can install apps
-- Git and basic command line knowledge
+- Git for cloning test repositories
+
+**Note:** You do NOT need Node.js locally - Cline Core compiles and runs inside Docker (Linux).
 
 ## Step 1: Initial Setup
 
@@ -36,24 +37,7 @@ cd slack-cline
 cp .env.example .env
 ```
 
-### 1.2 Set Up Cline Core (First Time)
-
-Cline Core is the gRPC server that runs the actual AI agent. You need to compile it once:
-
-```bash
-# Navigate to the Cline directory
-cd ../cline
-
-# Install dependencies
-npm install
-
-# Compile the standalone Cline Core
-npm run compile-standalone
-
-# This creates dist-standalone/cline-core.js
-```
-
-### 1.3 Compile Proto Files
+### 1.2 Compile Proto Files (Python Only)
 
 slack-cline needs to generate Python gRPC client code from Cline's proto definitions:
 
@@ -131,42 +115,35 @@ SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_SIGNING_SECRET=your-signing-secret-here
 ```
 
-## Step 3: Run the System Locally
+## Step 3: Build and Start All Services
 
-### 3.1 Terminal 1: Start Cline Core
+### 3.1 Build Everything (First Time Only)
 
-```bash
-cd cline
-node dist-standalone/cline-core.js --port 50051
+This builds Cline Core in a Linux container (avoiding Windows compilation issues):
+
+```powershell
+cd C:\Users\naman\sline\slack-cline
+
+# Build all images (this compiles Cline Core in Linux!)
+docker-compose build
+
+# This will take 5-10 minutes on first run
+# - Compiles Cline Core in Alpine Linux (no Windows issues)
+# - Builds Python backend container
+# - Downloads PostgreSQL image
 ```
 
-You should see:
-```
-Starting cline-core service...
-Registered instance in SQLite locks: 127.0.0.1:50051
-All services started successfully
-```
+### 3.2 Start All Services
 
-### 3.2 Terminal 2: Start PostgreSQL
+```powershell
+# Start everything
+docker-compose up
 
-```bash
-cd slack-cline
-docker-compose up db -d
-```
+# Or run in background:
+docker-compose up -d
 
-Wait ~5 seconds for PostgreSQL to initialize.
-
-### 3.3 Terminal 3: Start Backend
-
-```bash
-cd slack-cline
-
-# If using Docker:
-docker-compose up backend
-
-# Or run locally:
-cd backend
-python main.py
+# View logs:
+docker-compose logs -f
 ```
 
 You should see:
@@ -177,7 +154,7 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
 ```
 
-### 3.4 Terminal 4: Expose with ngrok
+### 3.3 Expose with ngrok (Separate Terminal)
 
 For local development, expose your backend to the internet:
 
@@ -237,24 +214,23 @@ You should see:
 
 ## Step 5: Development Workflow
 
-### Quick Start (All-in-One)
+### Quick Start (All Services via Docker)
 
 For future development sessions:
 
-```bash
-# Terminal 1: Cline Core
-cd cline && node dist-standalone/cline-core.js
+```powershell
+# Start everything
+cd C:\Users\naman\sline\slack-cline
+docker-compose up
 
-# Terminal 2: slack-cline
-cd slack-cline && docker-compose up
-
-# Terminal 3: ngrok (if testing with Slack)
+# In another terminal: Expose to Slack
 ngrok http 8000
 ```
 
-### Docker-Only Development
-
-Update `docker-compose.yml` to build Cline Core as a container (advanced).
+That's it! Docker handles:
+- ✅ Cline Core compilation (in Linux)
+- ✅ PostgreSQL database
+- ✅ Python backend
 
 ### Hot Reload
 
@@ -267,19 +243,21 @@ The backend supports hot reload in development:
 
 ### "Failed to connect to Cline Core"
 
-**Check if Cline Core is running:**
-```bash
-# Windows
-netstat -ano | findstr :50051
-
-# macOS/Linux
-lsof -i :50051
+**Check if Cline Core container is running:**
+```powershell
+docker-compose ps cline-core
+# Should show "Up"
 ```
 
-**Start Cline Core if not running:**
-```bash
-cd cline
-node dist-standalone/cline-core.js --port 50051
+**View Cline Core logs:**
+```powershell
+docker-compose logs cline-core
+# Should see: "All services started successfully"
+```
+
+**Restart Cline Core:**
+```powershell
+docker-compose restart cline-core
 ```
 
 ### "gRPC proto modules not found"
@@ -301,11 +279,31 @@ python compile_protos.py
 
 This is expected for MVP! The system auto-creates a default repository mapping.
 
-**To customize:**
-Edit the repository URL in `modules/orchestrator/service.py`:
+**For MVP:** Edit `backend/modules/orchestrator/service.py` (line ~130):
 ```python
-repo_url="https://github.com/your-org/your-repo.git"
+project = ProjectModel(
+    tenant_id=tenant_id,
+    slack_channel_id=channel_id,
+    repo_url="/workspaces/demo",  # Docker volume path
+    default_ref="main"
+)
 ```
+
+**For production:** Configure via database with actual Git URLs:
+```sql
+INSERT INTO projects VALUES (
+    gen_random_uuid(),
+    'default',
+    'YOUR_SLACK_CHANNEL_ID',
+    'https://github.com/your-org/your-repo.git',  # Real Git URL
+    'main',
+    NOW(),
+    NOW()
+);
+```
+
+**Workspace Management:**
+For MVP, use Docker volumes. For production, add automatic git cloning logic in the execution engine.
 
 ### Backend won't start
 

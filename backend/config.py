@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     
     # Cline Core gRPC settings
     cline_core_host: str = Field(
-        default="localhost",
+        default="cline-core",  # Docker service name
         description="Cline Core gRPC server host"
     )
     cline_core_port: int = Field(

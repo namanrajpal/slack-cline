@@ -32,16 +32,23 @@ services:
     networks:
       - slack-cline-network
 
-  # Cline Core service (placeholder for now)
+  # Cline Core service - AI agent gRPC server
   cline-core:
-    image: node:18-alpine
-    command: ["sleep", "infinity"]  # Placeholder until we integrate real Cline Core
+    build:
+      context: ..
+      dockerfile: slack-cline/cline-core.Dockerfile
     ports:
       - "50051:50051"
     environment:
       - PROTOBUS_ADDRESS=0.0.0.0:50051
+      - CLINE_DIR=/root/.cline
+    volumes:
+      # Mount workspace directory so Cline can access repositories
+      - cline-workspaces:/workspaces
+    working_dir: /workspaces
     networks:
       - slack-cline-network
+    restart: unless-stopped
 
   # Optional: pgAdmin for database management
   pgadmin:
@@ -60,6 +67,7 @@ services:
 
 volumes:
   postgres_data:
+  cline-workspaces:  # Persistent storage for cloned repositories
 
 networks:
   slack-cline-network:
