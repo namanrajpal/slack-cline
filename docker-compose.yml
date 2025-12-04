@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/slack_cline
+      - DEBUG=true
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - db
+      - cline-core
+    networks:
+      - slack-cline-network
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=slack_cline
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - slack-cline-network
+
+  # Cline Core service (placeholder for now)
+  cline-core:
+    image: node:18-alpine
+    command: ["sleep", "infinity"]  # Placeholder until we integrate real Cline Core
+    ports:
+      - "50051:50051"
+    environment:
+      - PROTOBUS_ADDRESS=0.0.0.0:50051
+    networks:
+      - slack-cline-network
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@slack-cline.local
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    networks:
+      - slack-cline-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+
+networks:
+  slack-cline-network:
+    driver: bridge
