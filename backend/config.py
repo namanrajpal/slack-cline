@@ -60,6 +60,24 @@ class Settings(BaseSettings):
         description="gRPC call timeout in seconds"
     )
     
+    # Cline CLI authentication settings
+    cline_provider: str = Field(
+        default="anthropic",
+        description="LLM provider ID (e.g., 'anthropic', 'openai-native', 'openrouter')"
+    )
+    cline_api_key: str = Field(
+        default="",
+        description="API key for the LLM provider"
+    )
+    cline_model_id: str = Field(
+        default="claude-sonnet-4-5-20250929",
+        description="Model ID to use for Cline tasks"
+    )
+    cline_base_url: str = Field(
+        default="",
+        description="Optional base URL for OpenAI-compatible providers"
+    )
+    
     # Tenant settings (for multi-tenant support)
     default_tenant_id: str = Field(
         default="default",

@@ -42,8 +42,10 @@ class RunModel(Base):
     tenant_id = Column(String(255), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False)
     
-    # Cline Core integration
-    cline_run_id = Column(String(255), nullable=True, index=True)  # Set after starting Cline
+    # Cline CLI integration
+    cline_run_id = Column(String(255), nullable=True, index=True)  # Task ID from Cline CLI
+    cline_instance_address = Column(String(255), nullable=True)  # Instance address (e.g., localhost:50052)
+    workspace_path = Column(String(512), nullable=True)  # Path to cloned repository
     
     # Run status and execution details
     status = Column(Enum(RunStatus), nullable=False, default=RunStatus.QUEUED, index=True)

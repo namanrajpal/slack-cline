@@ -11,19 +11,18 @@ This guide walks you through setting up the complete slack-cline system from scr
 
 ## Overview
 
-You'll be setting up three main components (all via Docker):
+You'll be setting up two main components (all via Docker):
 1. **PostgreSQL Database** - Stores run history and channel mappings
-2. **Cline Core** - The AI agent gRPC server (compiled in Linux container)
-3. **slack-cline Backend** - FastAPI service that connects Slack to Cline Core
+2. **slack-cline Backend** - FastAPI service with embedded Cline CLI
+
+**Note:** The backend container includes Cline CLI, which automatically manages Cline Core instances and workspaces. No separate Cline Core service needed!
 
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- Python 3.12+ (for proto compilation only)
+- Python 3.12+ (optional, for local development)
 - A Slack workspace where you can install apps
-- Git for cloning test repositories
-
-**Note:** You do NOT need Node.js locally - Cline Core compiles and runs inside Docker (Linux).
+- Git (pre-installed in Docker container)
 
 ## Step 1: Initial Setup
 
@@ -37,37 +36,9 @@ cd slack-cline
 cp .env.example .env
 ```
 
-### 1.2 Compile Proto Files (Python Only)
+### 1.2 Configure Slack App First
 
-slack-cline needs to generate Python gRPC client code from Cline's proto definitions:
-
-```bash
-# Navigate back to slack-cline
-cd ../slack-cline
-
-# Install Python dependencies (in a virtual environment)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install requirements
-pip install -r requirements.txt
-
-# Compile proto files
-cd backend
-python compile_protos.py
-cd ..
-```
-
-You should see output like:
-```
-Compiling Cline proto files...
-✓ Successfully compiled task.proto
-✓ Successfully compiled state.proto
-✓ Successfully compiled ui.proto
-✓ Successfully compiled common.proto
-✓ Successfully compiled checkpoints.proto
-✓ All proto files compiled successfully!
-```
+Before building, set up your Slack app to get credentials (see Step 2).
 
 ## Step 2: Configure Slack App
 
@@ -115,25 +86,24 @@ SLACK_BOT_TOKEN=xoxb-your-bot-token-here
 SLACK_SIGNING_SECRET=your-signing-secret-here
 ```
 
-## Step 3: Build and Start All Services
+## Step 3: Build and Start
 
-### 3.1 Build Everything (First Time Only)
-
-This builds Cline Core in a Linux container (avoiding Windows compilation issues):
+### 3.1 Build Docker Images (First Time Only)
 
 ```powershell
 cd C:\Users\naman\sline\slack-cline
 
-# Build all images (this compiles Cline Core in Linux!)
+# Build the backend (installs Node.js + Cline CLI inside)
 docker-compose build
 
-# This will take 5-10 minutes on first run
-# - Compiles Cline Core in Alpine Linux (no Windows issues)
-# - Builds Python backend container
+# This takes 3-5 minutes:
+# - Installs Node.js 20 in Python container
+# - Installs Cline CLI globally (npm install -g cline)
+# - Installs Python dependencies
 # - Downloads PostgreSQL image
 ```
 
-### 3.2 Start All Services
+### 3.2 Start Services
 
 ```powershell
 # Start everything
@@ -141,17 +111,13 @@ docker-compose up
 
 # Or run in background:
 docker-compose up -d
-
-# View logs:
-docker-compose logs -f
+docker-compose logs -f backend  # View logs
 ```
 
 You should see:
 ```
-INFO:     Started server process
-INFO:     Waiting for application startup.
-INFO:     Application startup complete.
 INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Application startup complete.
 ```
 
 ### 3.3 Expose with ngrok (Separate Terminal)
@@ -212,25 +178,38 @@ You should see:
 {"event": "Run execution_started", "cline_run_id": "task_xyz"}
 ```
 
-## Step 5: Development Workflow
+## Step 5: How It Works
 
-### Quick Start (All Services via Docker)
+### Architecture
 
-For future development sessions:
+```
+Slack → Backend (FastAPI) → Cline CLI → Cline Core → Git Repos
+           ↓
+      PostgreSQL
+```
+
+**When you run `/cline run "task"`:**
+1. Backend receives Slack webhook
+2. Backend calls `cline instance new` in a cloned repo workspace
+3. Cline CLI starts Cline Core automatically
+4. Backend calls `cline task new -y "task"`
+5. Backend streams output with `cline task view --follow`
+6. Progress updates posted to Slack
+7. Cleanup: `cline instance kill` when done
+
+### Development Workflow
 
 ```powershell
-# Start everything
+# Start services
 cd C:\Users\naman\sline\slack-cline
 docker-compose up
 
 # In another terminal: Expose to Slack
 ngrok http 8000
-```
 
-That's it! Docker handles:
-- ✅ Cline Core compilation (in Linux)
-- ✅ PostgreSQL database
-- ✅ Python backend
+# Test from Slack
+/cline run create a hello world script
+```
 
 ### Hot Reload
 
@@ -241,32 +220,21 @@ The backend supports hot reload in development:
 
 ## Troubleshooting
 
-### "Failed to connect to Cline Core"
+### "Cline CLI not found"
 
-**Check if Cline Core container is running:**
+**Rebuild the Docker image:**
 ```powershell
-docker-compose ps cline-core
-# Should show "Up"
+docker-compose build backend
 ```
 
-**View Cline Core logs:**
-```powershell
-docker-compose logs cline-core
-# Should see: "All services started successfully"
-```
+The Dockerfile installs Cline CLI automatically via `npm install -g cline`.
 
-**Restart Cline Core:**
-```powershell
-docker-compose restart cline-core
-```
+### "git clone failed"
 
-### "gRPC proto modules not found"
-
-**Compile the proto files:**
-```bash
-cd slack-cline/backend
-python compile_protos.py
-```
+**Check repository URL** in database or code:
+- Must be a valid Git repository
+- Must be publicly accessible OR have credentials configured
+- For private repos, you'll need to add SSH keys or tokens
 
 ### "Slack signature verification failed"
 
@@ -302,8 +270,10 @@ INSERT INTO projects VALUES (
 );
 ```
 
-**Workspace Management:**
-For MVP, use Docker volumes. For production, add automatic git cloning logic in the execution engine.
+**How Workspaces Work:**
+- Each run clones the repository to `/home/app/workspaces/run-TIMESTAMP/`
+- Cline CLI runs in that directory
+- After completion, workspace is automatically cleaned up
 
 ### Backend won't start
 

@@ -16,7 +16,7 @@ from config import settings
 from database import get_session
 from models.project import ProjectModel
 from models.run import RunModel, RunStatus
-from modules.execution_engine.client import get_execution_client
+from modules.execution_engine.cli_client import get_cli_client
 from schemas.slack import StartRunCommand, CancelRunCommand
 from schemas.run import RunEventSchema
 from utils.logging import get_logger, log_run_event
@@ -34,9 +34,10 @@ class RunOrchestratorService:
     """
     
     def __init__(self):
-        self.execution_client = get_execution_client()
+        self.cli_client = get_cli_client()
         self.slack_client = get_slack_client()
         self._active_streams: Dict[str, asyncio.Task] = {}
+        self._run_metadata: Dict[str, Dict] = {}  # Store instance/workspace info per run
     
     async def start_run(self, command: StartRunCommand, session: AsyncSession) -> RunModel:
         """
@@ -86,12 +87,16 @@ class RunOrchestratorService:
         log_run_event("run_created", str(run.id), task_prompt=command.task_prompt[:100])
         
         try:
-            # Start execution via Execution Engine
-            cline_run_id = await self.execution_client.start_run(
+            # Start execution via Cline CLI with authentication
+            result = await self.cli_client.start_run(
                 repo_url=project.repo_url,
                 ref_type="branch",
                 ref=project.default_ref,
                 prompt=command.task_prompt,
+                provider=settings.cline_provider,
+                api_key=settings.cline_api_key,
+                model_id=settings.cline_model_id,
+                base_url=settings.cline_base_url or None,
                 metadata={
                     "slack_channel_id": command.channel_id,
                     "slack_user_id": command.user_id,
@@ -99,15 +104,26 @@ class RunOrchestratorService:
                 }
             )
             
-            # Update run with Cline run ID and mark as running
-            run.cline_run_id = cline_run_id
+            # Update run with CLI execution details
+            run.cline_run_id = result["task_id"]
+            run.cline_instance_address = result["instance_address"]
+            run.workspace_path = result["workspace_path"]
             run.mark_started()
             await session.commit()
+            
+            # Store metadata for event streaming
+            self._run_metadata[str(run.id)] = {
+                "instance_address": result["instance_address"],
+                "workspace_path": result["workspace_path"],
+                "task_id": result["task_id"]
+            }
             
             log_run_event(
                 "execution_started",
                 str(run.id),
-                cline_run_id=cline_run_id,
+                cline_run_id=result["task_id"],
+                instance=result["instance_address"],
+                workspace=result["workspace_path"],
                 repo_url=project.repo_url
             )
             
@@ -160,10 +176,11 @@ class RunOrchestratorService:
         )
         
         success = False
-        if run.cline_run_id:
-            # Cancel via Execution Engine
-            success = await self.execution_client.cancel_run(
-                run.cline_run_id, 
+        if run.cline_instance_address and run.workspace_path:
+            # Cancel via Cline CLI
+            success = await self.cli_client.cancel_run(
+                run.cline_instance_address,
+                run.workspace_path,
                 command.reason
             )
         
@@ -220,8 +237,8 @@ class RunOrchestratorService:
     
     async def _start_event_stream(self, run: RunModel) -> None:
         """Start event streaming for a run in background."""
-        if not run.cline_run_id:
-            logger.warning(f"No Cline run ID for run {run.id}, cannot start event stream")
+        if not run.cline_instance_address or not run.workspace_path:
+            logger.warning(f"Missing instance/workspace for run {run.id}, cannot start event stream")
             return
         
         # Create background task for event streaming
@@ -245,12 +262,21 @@ class RunOrchestratorService:
         """
         Handle event stream for a run.
         
-        This runs in the background and processes events from Cline Core.
+        This runs in the background and processes events from Cline CLI.
         """
         run_id = str(run.id)
+        metadata = self._run_metadata.get(run_id)
+        
+        if not metadata:
+            logger.error(f"No metadata found for run {run_id}")
+            return
         
         try:
-            async for event in self.execution_client.stream_events(run.cline_run_id):
+            async for event in self.cli_client.stream_events(
+                metadata["instance_address"],
+                metadata["workspace_path"],
+                metadata["task_id"]
+            ):
                 await self._process_run_event(run_id, event)
                 
         except asyncio.CancelledError:
@@ -318,6 +344,13 @@ class RunOrchestratorService:
                 # Clean up if run is complete
                 if run.is_completed:
                     await self._stop_event_stream(run_id)
+                    # Clean up Cline instance and workspace
+                    if metadata:
+                        await self.cli_client.cleanup_instance(
+                            metadata["instance_address"],
+                            metadata["workspace_path"]
+                        )
+                        del self._run_metadata[run_id]
                     
             except Exception as e:
                 logger.error(f"Error processing event for run {run_id}: {e}")

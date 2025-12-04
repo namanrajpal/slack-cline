@@ -2,6 +2,13 @@
 
 A FastAPI-based backend service that integrates Slack with Cline Core via gRPC, enabling developers to trigger Cline runs directly from Slack channels and see progress updates in real-time.
 
+# Documentation 
+- GETTING_STARTED.md - Complete walkthrough with troubleshooting
+- CLINE_CORE_INTEGRATION.md - Deep dive into gRPC integration
+- IMPLEMENTATION_SUMMARY.md - Architecture and decisions
+- implementation_plan.md - Original technical specification
+- README.md - Updated with correct setup instructions
+
 ## 🏗️ Architecture
 
 The system follows a clean three-tier architecture:
