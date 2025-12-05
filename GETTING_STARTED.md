@@ -3,11 +3,12 @@
 This guide walks you through setting up the complete slack-cline system from scratch.
 
 # Documentation 
-- GETTING_STARTED.md - Complete walkthrough with troubleshooting
-- CLINE_CORE_INTEGRATION.md - Deep dive into gRPC integration
+- GETTING_STARTED.md - Complete walkthrough with troubleshooting (this file)
+- FINAL_ARCHITECTURE.md - Current CLI-based architecture
+- CLINE_CLI_AUTHENTICATION.md - API key configuration guide
 - IMPLEMENTATION_SUMMARY.md - Architecture and decisions
 - implementation_plan.md - Original technical specification
-- README.md - Updated with correct setup instructions
+- README.md - Project overview
 
 ## Overview
 
@@ -302,12 +303,12 @@ User in Slack
 Slack App (webhook)
     ↓ HTTP POST
 Backend (FastAPI)
-    ↓ gRPC
-Cline Core (Node.js)
+    ↓ CLI subprocess
+Cline CLI → Cline Core (Node.js)
     ↓ 
 AI Agent executes task
-    ↓ Events
-Backend receives events
+    ↓ streams output
+Backend captures CLI output
     ↓ HTTP POST
 Slack shows progress
 ```
@@ -372,18 +373,18 @@ docker-compose up -d
 
 ## Reference Documentation
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - System architecture
+- [FINAL_ARCHITECTURE.md](./FINAL_ARCHITECTURE.md) - Current architecture
+- [CLINE_CLI_AUTHENTICATION.md](./CLINE_CLI_AUTHENTICATION.md) - API key setup
 - [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md) - Component details
-- [CLINE_CORE_INTEGRATION.md](./CLINE_CORE_INTEGRATION.md) - gRPC integration guide
 - [implementation_plan.md](./implementation_plan.md) - Implementation details
 - [README.md](./README.md) - Project overview
 
 ## Support
 
 Issues? Check:
-1. All three components are running (Cline Core, PostgreSQL, Backend)
-2. Proto files are compiled (`python backend/compile_protos.py`)
-3. Environment variables in `.env` are correct
+1. Docker services are running (PostgreSQL, Backend)
+2. Cline CLI is installed in Docker container (`docker-compose exec backend cline --version`)
+3. Environment variables in `.env` are correct (especially API keys)
 4. ngrok tunnel is active and URLs match Slack app config
 5. Logs for error messages (`docker-compose logs -f backend`)
 

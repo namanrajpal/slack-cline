@@ -6,20 +6,26 @@ After encountering Windows compilation issues with Cline Core, we pivoted to a *
 
 ## Architecture Evolution
 
-### Original Plan (Abandoned)
+### Attempted Implementation: Direct gRPC Integration
 ```
 Slack → Backend (Python gRPC client) → Cline Core (gRPC server)
                                           ↓
                                       File System
 ```
 
-**Problems:**
-- ❌ Cline Core won't compile on Windows
-- ❌ TypeScript build system conflicts in Docker
-- ❌ Complex gRPC proto management
+We initially implemented direct gRPC integration with Cline Core, including:
+- Proto file compilation (`backend/compile_protos.py`)
+- gRPC client implementation (`backend/modules/execution_engine/client.py`)
+- Proto definitions (`backend/proto/`)
+
+**Problems Encountered:**
+- ❌ Cline Core won't compile
+- ❌ Complex gRPC proto management and dependencies
 - ❌ Manual workspace management required
 
-### Final Implementation (Working)
+**Status**: Implementation code was removed after pivot to CLI approach (cleaner codebase, documented in architecture evolution) We shall give it an another try in future. 
+
+### Current Implementation: Cline CLI Subprocess
 ```
 Slack → Backend (FastAPI) → Cline CLI (subprocess) → Cline Core → Git Repos
            ↓                     ↓
@@ -232,10 +238,13 @@ CREATE TABLE runs (
 - `Dockerfile` - Includes Node.js + Cline CLI installation
 - `docker-compose.yml` - Single backend + database (no separate Cline Core)
 
-### Removed Files
-- ~~`backend/modules/execution_engine/client.py`~~ - Old gRPC client
-- ~~`cline-core.Dockerfile`~~ - Attempted Cline Core build (failed)
-- ~~`backend/proto/`~~ - No longer need proto compilation
+### Active Files
+- `backend/modules/execution_engine/cli_client.py` - Cline CLI subprocess wrapper (ACTIVE)
+- `backend/modules/orchestrator/service.py` - Run lifecycle coordination
+- `backend/modules/slack_gateway/handlers.py` - Slack webhook handling
+- `backend/models/run.py` - Database model with CLI fields
+- `Dockerfile` - Includes Node.js + Cline CLI installation
+- `docker-compose.yml` - Single backend + database (no separate Cline Core)
 
 ## Testing
 
@@ -274,9 +283,34 @@ docker-compose logs -f backend
 - [ ] Configure backup strategy
 - [ ] Add health checks for Cline CLI availability
 
+## Modular Design Philosophy
+
+The backend is **architected with a modular execution engine interface**, making it easy to swap between different Cline integration approaches:
+
+```python
+# Backend structure supports multiple implementations:
+backend/modules/execution_engine/
+├── cli_client.py      ← Currently active (Cline CLI subprocess)
+├── client.py          ← Preserved (gRPC direct integration)
+└── interface.py       ← Abstract interface (future)
+
+# Orchestrator uses dependency injection:
+class RunOrchestratorService:
+    def __init__(self):
+        self.execution_client = get_cli_client()  # Easy to swap!
+```
+
+**Benefits:**
+- Can add alternative implementations (direct gRPC, REST API, WebSocket) if needed
+- Future implementations fit the same modular pattern
+- Low coupling between orchestration and execution layers
+- Easy to mock/test different execution strategies
+
+The architecture documentation preserves the history of the gRPC attempt and explains why we pivoted to CLI. This modular design allows reverting or trying new approaches in the future without major refactoring.
+
 ## Summary
 
-**We successfully pivoted from complex gRPC integration to a simpler CLI-based approach** that:
+**We successfully pivoted from direct gRPC integration to a simpler CLI-based approach** that:
 - Uses battle-tested Cline CLI (same as GitHub Actions)
 - Requires zero compilation or proto generation
 - Automatically manages instances and workspaces

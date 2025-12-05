@@ -4,24 +4,26 @@ A FastAPI-based backend service that integrates Slack with Cline Core via gRPC, 
 
 # Documentation 
 - GETTING_STARTED.md - Complete walkthrough with troubleshooting
-- CLINE_CORE_INTEGRATION.md - Deep dive into gRPC integration
+- FINAL_ARCHITECTURE.md - Current CLI-based architecture
+- CLINE_CLI_AUTHENTICATION.md - API key configuration guide
 - IMPLEMENTATION_SUMMARY.md - Architecture and decisions
 - implementation_plan.md - Original technical specification
-- README.md - Updated with correct setup instructions
 
 ## 🏗️ Architecture
 
-The system follows a clean three-tier architecture:
+The system uses Cline CLI subprocess calls for simplicity and reliability:
 
 - **Slack Gateway**: HTTP endpoints for Slack webhooks with signature verification
-- **Run Orchestrator**: Business logic coordinating between Slack, database, and Cline Core  
-- **Execution Engine**: gRPC client wrapper for communicating with Cline Core
+- **Run Orchestrator**: Business logic coordinating between Slack, database, and Cline CLI  
+- **Execution Engine**: CLI subprocess wrapper for Cline commands
 
 ```
-Slack Workspace ←→ FastAPI Backend ←→ Cline Core (gRPC)
+Slack Workspace ←→ FastAPI Backend ←→ Cline CLI (subprocess) ←→ Cline Core
                         ↓
                    PostgreSQL
 ```
+
+**See [FINAL_ARCHITECTURE.md](./FINAL_ARCHITECTURE.md) for complete architecture details.**
 
 ## 🚀 Quick Start
 
@@ -32,37 +34,7 @@ Slack Workspace ←→ FastAPI Backend ←→ Cline Core (gRPC)
 - Python 3.12+ (for local development)
 - A Slack workspace where you can install apps
 
-### 1. Set Up Cline Core (One-Time Setup)
-
-Cline Core is the gRPC server that runs the actual AI agent:
-
-```bash
-cd cline
-
-# Install dependencies and compile Cline Core
-npm install
-npm run compile-standalone
-
-# This creates dist-standalone/cline-core.js
-```
-
-### 2. Compile Proto Files (One-Time Setup)
-
-```bash
-cd ../slack-cline
-
-# Create virtual environment and install dependencies
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Compile Cline proto files to Python gRPC code
-cd backend
-python compile_protos.py
-cd ..
-```
-
-### 3. Configure Environment
+### 1. Configure Environment
 
 ```bash
 # Copy environment template
@@ -79,26 +51,22 @@ CLINE_CORE_HOST=localhost
 CLINE_CORE_PORT=50051
 ```
 
-### 4. Start All Services
+### 2. Start Services
 
 ```bash
-# Terminal 1: Start Cline Core
-cd cline
-node dist-standalone/cline-core.js --port 50051
-
-# Terminal 2: Start PostgreSQL and Backend
+# Terminal 1: Start PostgreSQL and Backend (includes Cline CLI)
 cd slack-cline
 docker-compose up
 
-# Terminal 3: Expose to internet (for Slack webhooks)
+# Terminal 2: Expose to internet (for Slack webhooks)
 ngrok http 8000
 ```
 
-The backend will be available at `http://localhost:8000`.
+The backend will be available at `http://localhost:8000`. Cline CLI is automatically installed in the Docker container.
 
 📚 **For detailed setup instructions, see [GETTING_STARTED.md](./GETTING_STARTED.md)**
 
-### 4. Configure Slack App
+### 3. Configure Slack App
 
 Create a new Slack app at [api.slack.com](https://api.slack.com/apps):
 
@@ -185,7 +153,6 @@ slack-cline/
 │   ├── utils/                 # Utilities
 │   │   ├── logging.py         # Structured logging
 │   │   └── slack_client.py    # Slack API wrapper
-│   └── proto/                 # gRPC proto definitions
 ├── docker-compose.yml         # Local development environment
 ├── Dockerfile                 # Backend container
 └── requirements.txt           # Python dependencies
@@ -204,9 +171,9 @@ slack-cline/
 - Handles event streaming and status updates
 
 **Execution Engine** (`modules/execution_engine/`)
-- gRPC client for Cline Core communication
-- Translates between domain models and proto messages
-- Manages connections and streaming
+- CLI subprocess wrapper for Cline commands
+- Manages instance creation and cleanup
+- Streams output and events
 
 ### Database Models
 

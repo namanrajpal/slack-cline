@@ -26,8 +26,8 @@ if (-not (Test-Path ".env"))
     Write-Host "⚠️  Please edit .env with your Slack credentials!" -ForegroundColor Yellow
 }
 
-# Compile proto files
-Write-Host "🔧 Compiling proto files..." -ForegroundColor Cyan
+# No proto compilation needed - using Cline CLI subprocess approach
+Write-Host "🔧 Installing dependencies..." -ForegroundColor Cyan
 
 # Create virtual environment if it doesn't exist
 if (-not (Test-Path "backend\venv")) 
@@ -40,11 +40,6 @@ if (-not (Test-Path "backend\venv"))
 Write-Host "Installing Python dependencies..." -ForegroundColor Gray
 & backend\venv\Scripts\Activate.ps1
 pip install -q -r requirements.txt
-
-# Compile proto files
-Push-Location backend
-python compile_protos.py
-Pop-Location
 
 Write-Host ""
 Write-Host "✅ Setup complete!" -ForegroundColor Green

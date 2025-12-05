@@ -1,4 +1,4 @@
-# System Architecture – Cline × Slack (Single Backend + Cline gRPC)
+# System Architecture – Cline × Slack (CLI Subprocess Integration)
 
 ## 1. Components Overview
 
@@ -6,24 +6,28 @@ We have four primary elements:
 
 1. **Slack App (UI surface)**
 
-   * Slash command + bot user living in the user’s Slack workspace.
+   * Slash command + bot user living in the user's Slack workspace.
 
 2. **Backend Service** (single deployable)
 
    * **Slack Gateway**
    * **Run Orchestrator**
-   * **Execution Engine** (gRPC client)
+   * **Execution Engine** (CLI subprocess wrapper)
    * **Postgres** integration
+   * **Cline CLI** (embedded, manages Cline Core automatically)
 
-3. **Cline Core (gRPC)**
+3. **Cline Core**
 
-   * A gRPC server that executes runs and streams events.
+   * Managed automatically by Cline CLI
+   * Executes runs and provides output streams
 
 4. **External services**
 
    * Git provider(s): e.g., GitHub/GitLab (for repo clones / fetch).
 
 The backend is the *only* HTTP-exposed component; everything else is internal.
+
+> **Note:** This architecture uses Cline CLI subprocess calls instead of direct gRPC integration. The Cline CLI handles instance management, workspace setup, and communication with Cline Core automatically. See [FINAL_ARCHITECTURE.md](./FINAL_ARCHITECTURE.md) for the evolution from gRPC to CLI approach.
 
 ---
 
@@ -38,14 +42,14 @@ flowchart LR
   subgraph Backend["Backend Service"]
     SG[Slack Gateway<br/>(HTTP)] --> ORCH[Run Orchestrator]
     ORCH --> DB[(Postgres)]
-    ORCH --> EXE[Execution Engine<br/>(gRPC client)]
+    ORCH --> EXE[Execution Engine<br/>(CLI subprocess)]
+    EXE --> CLI[Cline CLI]
   end
 
-  subgraph Cline["Cline Core"]
-    CC[ClineRunner gRPC Server]
+  subgraph Cline["Cline Core (managed by CLI)"]
+    CLI -->|manages| CC[Cline Core]
   end
 
-  EXE -->|gRPC| CC
   CC -->|clone/fetch| GH[Git Provider]
 
   SA -->|Events & Interactivity| SG
@@ -82,7 +86,7 @@ flowchart LR
 
   * Redirect URL: `https://<backend>/slack/oauth/callback`
 
-Slack stays very “dumb”: it just forwards events and renders messages.
+Slack stays very "dumb": it just forwards events and renders messages.
 
 ---
 
@@ -94,7 +98,7 @@ Slack stays very “dumb”: it just forwards events and renders messages.
 * Parse:
 
   * Slash commands (`/cline run <task>`).
-  * Interactive payloads (e.g., “Cancel run” button).
+  * Interactive payloads (e.g., "Cancel run" button).
 * Convert Slack payloads into internal commands:
 
   * `StartRunCommand`
@@ -112,13 +116,13 @@ Slack stays very “dumb”: it just forwards events and renders messages.
 
   * OAuth flow if/when you support multiple workspaces.
 
-Slack Gateway does *not* know about Cline or gRPC; it forwards to Run Orchestrator.
+Slack Gateway does *not* know about Cline CLI; it forwards to Run Orchestrator.
 
 ---
 
 ### 3.3 Backend – Run Orchestrator
 
-This is the core “brain” of the application.
+This is the core "brain" of the application.
 
 **Responsibilities**
 
@@ -134,14 +138,14 @@ This is the core “brain” of the application.
     * Slack metadata (channel, thread, user).
   * Call **Execution Engine**:
 
-    * `startRun(repoUrl, refType, ref, task, limits)` → returns `cline_run_id`.
-  * Update run with `cline_run_id` and transition to `RUNNING` when appropriate.
+    * `startRun(repoUrl, refType, ref, task, provider, apiKey, modelId)` → returns `{instance_address, task_id, workspace_path}`.
+  * Update run with Cline instance details and transition to `RUNNING`.
 
 * **Run event handling**
 
   * For each active run:
 
-    * Subscribe via Execution Engine to `streamEvents(cline_run_id)`.
+    * Subscribe via Execution Engine to `streamEvents(instance_address, workspace_path, task_id)`.
   * On each event:
 
     * Update `runs` table (status, summary, timestamps).
@@ -151,70 +155,121 @@ This is the core “brain” of the application.
 
   * On a cancel command (e.g., button):
 
-    * Mark run as “cancel requested” in DB.
-    * Call `ExecutionEngine.cancelRun(cline_run_id, reason)`.
-    * Reflect final status based on Cline events.
+    * Mark run as "cancel requested" in DB.
+    * Call `ExecutionEngine.cancelRun(instance_address, workspace_path, reason)`.
+    * Reflect final status based on CLI output.
 
 **Outputs**
 
 * Persistent state in Postgres.
 * Slack messages:
 
-  * Initial “Run started…”
+  * Initial "Run started…"
   * Progress updates.
   * Final summary.
 
 ---
 
-### 3.4 Backend – Execution Engine (gRPC Client)
+### 3.4 Backend – Execution Engine (CLI Subprocess Wrapper)
 
-The Execution Engine is a library/module inside the backend that wraps gRPC.
+The Execution Engine is a library/module inside the backend that wraps Cline CLI subprocess calls.
 
 **Responsibilities**
 
 * Be the **only** code that:
 
-  * Knows about the `ClineRunner` gRPC service.
-  * Translates between backend domain models and proto types.
+  * Executes Cline CLI commands via subprocess.
+  * Manages workspace directories and instance lifecycle.
+  * Parses CLI output (JSON and plain text).
 
 * Provide an internal interface like:
 
-  ```ts
-  interface ExecutionEngine {
-    startRun(...): Promise<{ clineRunId: string }>;
-    getRun(runId: string): Promise<RunSnapshot>;
-    streamEvents(runId: string, onEvent, onError): { cancel: () => void };
-    cancelRun(runId: string, reason?: string): Promise<void>;
-  }
+  ```python
+  class ClineCliClient:
+      async def start_run(
+          repo_url, ref, prompt, 
+          provider, api_key, model_id, base_url
+      ) -> Dict[str, str]:
+          # Returns {instance_address, task_id, workspace_path}
+      
+      async def stream_events(
+          instance_address, workspace_path, task_id
+      ) -> AsyncIterator[RunEventSchema]:
+          # Yields events from CLI output
+      
+      async def cancel_run(
+          instance_address, workspace_path, reason
+      ) -> bool:
+          # Cancels task via CLI
+      
+      async def cleanup_instance(
+          instance_address, workspace_path
+      ) -> None:
+          # Kills instance and cleans workspace
   ```
 
 * Manage:
 
-  * gRPC channels.
-  * Backoff/retry policies.
-  * Converting gRPC `RunEvent` into domain events used by the Orchestrator.
+  * Subprocess execution (`asyncio.create_subprocess_exec`).
+  * Workspace directory creation and cleanup.
+  * Instance lifecycle (create, kill).
+  * Authentication configuration via `cline auth` command.
+  * Output parsing (JSON from most commands, plain text from streaming).
 
 **Non-responsibilities**
 
 * No Slack knowledge.
 * No DB writes.
 
-It’s purely “ask Cline to do work and translate its responses.”
+It's purely "call Cline CLI commands and capture their responses."
 
 ---
 
-### 3.5 Cline Core (gRPC Server)
+### 3.5 Cline CLI
 
 **Responsibilities**
 
-* Host the `ClineRunner` gRPC service (see `EXECUTION_API_GRPC.md`).
-* For each `StartRun` request:
+* Manage Cline Core instances:
 
-  * Validate inputs.
-  * Clone/fetch repository (via Git provider).
-  * Launch Cline agent logic (mock in early dev; real Cline later).
-  * Emit `RunEvent` messages on `StreamEvents` stream.
-* Track run state internally, so `GetRun` and `CancelRun` work.
+  * `cline instance new` - Start new instance, auto-assigns port.
+  * `cline instance kill <address>` - Stop instance.
+
+* Configure authentication:
+
+  * `cline auth --provider ... --apikey ... --modelid ...` - Set API keys.
+
+* Execute tasks:
+
+  * `cline task new -y "prompt"` - Create task in YOLO/autonomous mode.
+  * `cline task view --follow` - Stream output in real-time.
+  * `cline task pause` - Cancel current task.
+
+* Handle workspace management:
+
+  * Uses current working directory as workspace.
+  * Manages file operations within workspace.
+
+**Integration Pattern**
+
+This is the **same pattern used by GitHub Actions integration** - proven and reliable.
+
+---
+
+### 3.6 Cline Core
+
+**Responsibilities**
+
+* Execute AI agent logic:
+
+  * File operations (read, write, edit).
+  * Command execution.
+  * Browser automation.
+  * Code analysis and generation.
+
+* Managed automatically by Cline CLI:
+
+  * CLI starts/stops Cline Core as needed.
+  * CLI handles gRPC communication internally.
 
 **Execution Environment**
 
@@ -224,11 +279,11 @@ It’s purely “ask Cline to do work and translate its responses.”
   * Use containers/devcontainers.
   * Integrate additional tools (test runner, static analyzer, etc.).
 
-Backend doesn’t care how Cline does the work; it just cares about gRPC responses.
+Backend doesn't interact with Cline Core directly - all communication goes through Cline CLI.
 
 ---
 
-### 3.6 External: Git Provider
+### 3.7 External: Git Provider
 
 **Responsibilities**
 
@@ -238,10 +293,7 @@ Backend doesn’t care how Cline does the work; it just cares about gRPC respons
   * HTTPS (PAT/token).
   * SSH (key-based).
 
-Cline Core is responsible for:
-
-* Authenticating to Git.
-* Cloning/fetching repos as needed.
+The Execution Engine (via `git clone`) is responsible for cloning repos to workspace directories.
 
 ---
 
@@ -277,7 +329,7 @@ Cline Core is responsible for:
 
    * Either ephemeral or thread message:
 
-     * “Starting Cline run for `Run unit tests and summarize failures`…”
+     * "Starting Cline run for `Run unit tests and summarize failures`…"
 
 ---
 
@@ -303,45 +355,40 @@ Cline Core is responsible for:
      * `refType = "branch"`
      * `ref = default_ref`
      * `prompt = task_prompt`
-     * limits (e.g., max duration, tokens)
+     * `provider`, `api_key`, `model_id` (from config)
      * metadata (Slack IDs, etc.)
 
 8. Execution Engine:
 
-   * Translates to `StartRunRequest` proto.
-   * Calls Cline Core’s gRPC `StartRun`.
-   * Receives `run_id` (Cline’s run ID).
-   * Returns `clineRunId` to Orchestrator.
+   * Clones repository to `/home/app/workspaces/run-TIMESTAMP/`
+   * Executes: `cline instance new` (creates instance at e.g., `localhost:50052`)
+   * Executes: `cline auth --provider ... --apikey ... --modelid ...` (configures authentication)
+   * Executes: `cline task new -y "prompt"` (creates task in YOLO mode)
+   * Returns `{instance_address, task_id, workspace_path}` to Orchestrator.
 
 9. Orchestrator:
 
-   * Updates `runs` row with `cline_run_id`.
-   * Optionally updates status to `RUNNING` once events start arriving.
+   * Updates `runs` row with `cline_instance_address`, `workspace_path`.
+   * Transitions status to `RUNNING`.
 
 ---
 
 ### 4.4 Execution + Events
 
-10. Execution Engine calls `StreamEvents(run_id)` on Cline Core and starts listening.
+10. Execution Engine executes: `cline task view --follow --address <instance>`
 
-11. Cline Core:
+11. Cline CLI:
 
-    * Clones the repo.
-    * Runs agent logic (e.g., run tests).
-    * Streams `RunEvent` messages:
-
-      * Status changes.
-      * Steps (“Cloning repo”, “Running npm test”, etc.).
-      * Logs.
-      * Diffs.
-      * Final summary.
+    * Streams output line by line (stdout).
+    * Shows progress: "Analyzing code...", "Running tests...", etc.
+    * Exits when task completes (exit code 0 = success, non-zero = failure).
 
 12. Execution Engine:
 
-    * For each `RunEvent`:
+    * For each line of output:
 
-      * Converts proto into domain event.
-      * Calls back into Orchestrator (`onRunEvent`).
+      * Creates `RunEventSchema` with event type and message.
+      * Yields to Orchestrator.
 
 13. Orchestrator:
 
@@ -353,7 +400,12 @@ Cline Core is responsible for:
     * Calls Slack Gateway helper functions to:
 
       * Post progress updates in the original thread.
-      * Post a final summary when `DONE`.
+      * Post a final summary when complete.
+
+14. Cleanup:
+
+    * Execution Engine executes: `cline instance kill <address>`
+    * Deletes workspace directory: `rm -rf /home/app/workspaces/run-TIMESTAMP/`
 
 ---
 
@@ -382,7 +434,9 @@ Tracks lifecycle of runs for auditing and UI.
 * `id` (backend run id, UUID)
 * `tenant_id`
 * `project_id` (FK into `projects`)
-* `cline_run_id` (run ID from Cline Core gRPC)
+* `cline_run_id` (task ID from Cline CLI)
+* `cline_instance_address` (e.g., `localhost:50052`)
+* `workspace_path` (e.g., `/home/app/workspaces/run-20231203-1030/`)
 * `status`
 
   * `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELLED`
@@ -404,19 +458,20 @@ Use `docker-compose`:
 
 * `backend`:
 
-  * Exposes HTTP (e.g., `http://localhost:8080`).
+  * Exposes HTTP (e.g., `http://localhost:8000`).
+  * Includes Cline CLI (installed via npm).
   * Connected to Postgres.
-* `cline-core`:
 
-  * Exposes gRPC (e.g., `grpc://cline-core:50051`).
 * `postgres`:
 
   * Data store for backend.
 
 Expose backend to Slack with ngrok:
 
-* `ngrok http 8080`
-* Use the forwarded URL as Slack’s Request URL.
+* `ngrok http 8000`
+* Use the forwarded URL as Slack's Request URL.
+
+**Note:** No separate Cline Core service needed - CLI manages instances automatically.
 
 ---
 
@@ -424,7 +479,7 @@ Expose backend to Slack with ngrok:
 
 **Backend**
 
-* Single container image.
+* Single container image (includes Cline CLI).
 * Deployed to:
 
   * ECS, Kubernetes, or any container platform.
@@ -434,17 +489,21 @@ Expose backend to Slack with ngrok:
 * Connects to:
 
   * Managed Postgres (RDS, Cloud SQL, etc.).
-  * Internal network endpoint for Cline Core gRPC.
+* Embedded Cline CLI:
 
-**Cline Core**
+  * Manages Cline Core instances internally.
+  * No external gRPC endpoints needed.
 
-* Deployed as:
+**Authentication**
 
-  * Sidecar in same pod/task as Backend, or
-  * Separate service in the same VPC (internal load balancer).
-* Exposes:
+* API keys configured via environment variables:
 
-  * gRPC on an internal-only address/port.
+  * `CLINE_PROVIDER` (e.g., "anthropic", "openai-native")
+  * `CLINE_API_KEY`
+  * `CLINE_MODEL_ID`
+  * `CLINE_BASE_URL` (optional, for OpenAI-compatible providers)
+
+**See [CLINE_CLI_AUTHENTICATION.md](./CLINE_CLI_AUTHENTICATION.md) for complete authentication setup.**
 
 ---
 
@@ -456,6 +515,7 @@ Expose backend to Slack with ngrok:
 
   * Talks to Backend via REST/GraphQL.
   * Lists runs, shows status, summaries, logs.
+
 * CLI:
 
   * Could hit Backend directly (reusing the same Orchestrator).
@@ -467,30 +527,38 @@ Expose backend to Slack with ngrok:
 
   * Post to mapped Slack channel:
 
-    * “PR #123 opened – run `/cline run review` to have Cline review it.”
+    * "PR #123 opened – run `/cline run review` to have Cline review it."
 
 ### 7.3 Scaling Out
 
 * If execution load becomes heavy:
 
-  * Split Execution Engine into its own microservice that implements the same gRPC contract with Cline Core, or
-  * Have separate worker instances of the backend that mostly handle Execution Engine responsibilities.
+  * Run multiple backend instances (horizontally scale).
+  * Each instance manages its own Cline CLI instances and workspaces.
+  * Shared PostgreSQL for coordination.
 
 ---
 
 ## 8. Summary
 
-* **Single backend** is the public face:
+* **Single backend container** is the public face:
 
   * Handles Slack, orchestration, and persistence.
-* **Cline Core gRPC** is a separate, internal execution engine:
+  * Embeds Cline CLI for execution.
 
-  * Clones repos and runs agent tasks.
+* **Cline CLI** manages Cline Core automatically:
+
+  * Clones repos to isolated workspaces.
+  * Runs agent tasks autonomously (YOLO mode).
+  * Streams output back to backend.
+
 * The architecture is:
 
   * Simple enough for a 4-person team to ship an MVP.
-  * Structured enough that you can later:
+  * Uses proven patterns (GitHub Actions integration).
+  * Production-ready with minimal setup.
+  * Structured enough to later:
 
-    * Add dashboards,
-    * Support multiple workspaces,
-    * Or split into more services without rewriting everything.
+    * Add dashboards.
+    * Support multiple workspaces.
+    * Scale horizontally.

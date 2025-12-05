@@ -19,8 +19,8 @@ if [ ! -f .env ]; then
     echo "⚠️  Please edit .env with your Slack credentials before running!"
 fi
 
-# Compile proto files if not already done
-echo "🔧 Compiling proto files..."
+# No proto compilation needed - using Cline CLI subprocess approach
+echo "🔧 Installing dependencies..."
 if [ ! -d "backend/venv" ]; then
     echo "Creating Python virtual environment..."
     python -m venv backend/venv
@@ -28,7 +28,6 @@ fi
 
 source backend/venv/bin/activate
 pip install -q -r requirements.txt
-cd backend && python compile_protos.py && cd ..
 
 echo ""
 echo "✅ Setup complete!"
