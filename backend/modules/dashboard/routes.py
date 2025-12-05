@@ -5,13 +5,16 @@ This module defines FastAPI routes for the dashboard, including project
 management, run monitoring, configuration, and test simulation endpoints.
 """
 
+import asyncio
 import hmac
 import hashlib
+import json
 import time
 from typing import List, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -251,23 +254,6 @@ async def update_api_config(
 # TEST/SIMULATION ENDPOINTS
 # ============================================================================
 
-def generate_slack_signature(timestamp: str, body: str) -> str:
-    """
-    Generate a valid Slack signature for testing.
-    
-    This creates signatures that pass Slack's verification, allowing
-    the test panel to simulate authentic Slack webhook calls.
-    """
-    secret = settings.slack_signing_secret
-    sig_basestring = f"v0:{timestamp}:{body}"
-    signature = hmac.new(
-        secret.encode(),
-        sig_basestring.encode(),
-        hashlib.sha256
-    ).hexdigest()
-    return f"v0={signature}"
-
-
 @router.post("/test/slack-command", response_model=TestSlackResponseSchema)
 async def test_slack_command(
     request: TestSlackCommandSchema
@@ -275,66 +261,50 @@ async def test_slack_command(
     """
     Simulate a Slack slash command for testing.
     
-    This endpoint generates a valid Slack webhook request and sends it
-    to the actual /slack/events endpoint, allowing you to test the full
-    integration without using real Slack.
-    
-    The request includes proper Slack signatures for authentication.
+    This endpoint calls the Slack handler directly, allowing you to test
+    the full integration without using real Slack.
     """
     try:
-        # Prepare form data like Slack would send
-        form_data = {
-            "token": "test_verification_token",
-            "team_id": request.team_id,
-            "team_domain": request.team_domain,
-            "channel_id": request.channel_id,
-            "channel_name": "test-channel",
-            "user_id": request.user_id,
-            "user_name": request.user_name,
-            "command": request.command,
-            "text": request.text,
-            "response_url": "https://hooks.slack.com/commands/test",
-            "trigger_id": "test_trigger_id"
-        }
-        
-        # Generate request body as Slack would encode it
-        body = urlencode(form_data)
-        timestamp = str(int(time.time()))
-        
-        # Generate valid Slack signature
-        signature = generate_slack_signature(timestamp, body)
-        
         logger.info(f"Test command simulation: {request.command} {request.text}")
         
-        # Import here to avoid circular dependency
-        from fastapi.testclient import TestClient
-        from main import app
+        # Import Slack schemas and handler
+        from schemas.slack import SlackCommandSchema
+        from modules.slack_gateway.handlers import handle_cline_command
         
-        # Make internal request to /slack/events
-        client = TestClient(app)
-        response = client.post(
-            "/slack/events",
-            data=form_data,
-            headers={
-                "X-Slack-Request-Timestamp": timestamp,
-                "X-Slack-Signature": signature,
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
+        # Create Slack command schema (mimics real Slack payload)
+        command_data = SlackCommandSchema(
+            token="test_verification_token",
+            team_id=request.team_id,
+            team_domain=request.team_domain,
+            channel_id=request.channel_id,
+            channel_name="test-channel",
+            user_id=request.user_id,
+            user_name=request.user_name,
+            command=request.command,
+            text=request.text,
+            response_url="https://hooks.slack.com/commands/test",
+            trigger_id="test_trigger_id"
         )
         
-        # Parse response
-        response_data = response.json() if response.status_code == 200 else None
+        # Call the Slack handler directly (same execution path as real Slack)
+        response = await handle_cline_command(command_data)
+        
+        # Extract response data
+        response_body = None
+        if hasattr(response, 'body'):
+            import json
+            response_body = json.loads(response.body.decode('utf-8'))
         
         return TestSlackResponseSchema(
-            success=response.status_code == 200,
-            message=f"Command {'executed' if response.status_code == 200 else 'failed'}",
-            run_id=None,  # Could parse from response if needed
-            request_payload=form_data,
-            response_payload=response_data
+            success=True,
+            message="Command executed successfully",
+            run_id=None,  # Could extract from response if needed
+            request_payload=command_data.dict(),
+            response_payload=response_body
         )
         
     except Exception as e:
-        logger.error(f"Test command failed: {e}")
+        logger.error(f"Test command failed: {e}", exc_info=True)
         return TestSlackResponseSchema(
             success=False,
             message=f"Test failed: {str(e)}",
@@ -351,3 +321,99 @@ async def dashboard_health():
         "status": "healthy",
         "module": "dashboard"
     }
+
+
+# ============================================================================
+# REAL-TIME EVENT STREAMING (SSE)
+# ============================================================================
+
+@router.get("/runs/{run_id}/events")
+async def stream_run_events(
+    run_id: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Stream real-time events for a run using Server-Sent Events (SSE).
+    
+    Connect to this endpoint to receive live updates as the run executes.
+    Events are sent in the format: data: {"event_type": "...", "message": "..."}
+    """
+    # Verify run exists
+    run = await service.get_run_details(run_id, session)
+    if not run:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id} not found"
+        )
+    
+    async def event_generator():
+        """Generate SSE events for the run."""
+        from modules.orchestrator.service import get_orchestrator_service
+        
+        orchestrator = get_orchestrator_service()
+        
+        # Send initial status
+        yield f"data: {json.dumps({'event_type': 'connected', 'message': f'Connected to run {run_id}', 'run_id': run_id})}\n\n"
+        
+        # Check if run is already complete
+        if run.status.value in ('SUCCEEDED', 'FAILED', 'CANCELLED'):
+            yield f"data: {json.dumps({'event_type': 'complete', 'message': f'Run already completed with status: {run.status.value}', 'status': run.status.value})}\n\n"
+            return
+        
+        # Send current status
+        yield f"data: {json.dumps({'event_type': 'status', 'message': f'Current status: {run.status.value}', 'status': run.status.value})}\n\n"
+        
+        # Subscribe to events for this run
+        # We'll poll the orchestrator's event queue or use the CLI output directly
+        metadata = orchestrator._run_metadata.get(run_id)
+        
+        if not metadata:
+            yield f"data: {json.dumps({'event_type': 'info', 'message': 'Run metadata not found - run may have already completed'})}\n\n"
+            # Still poll for completion
+            for _ in range(60):  # Poll for up to 60 seconds
+                await asyncio.sleep(1)
+                async for sess in get_session():
+                    updated_run = await service.get_run_details(run_id, sess)
+                    if updated_run and updated_run.status.value in ('SUCCEEDED', 'FAILED', 'CANCELLED'):
+                        yield f"data: {json.dumps({'event_type': 'complete', 'message': updated_run.summary or 'Run completed', 'status': updated_run.status.value})}\n\n"
+                        return
+            return
+        
+        # Stream events from CLI output
+        from modules.execution_engine.cli_client import get_cli_client
+        cli_client = get_cli_client()
+        
+        try:
+            async for event in cli_client.stream_events(
+                metadata["instance_address"],
+                metadata["workspace_path"],
+                metadata["task_id"]
+            ):
+                event_data = {
+                    "event_type": event.event_type,
+                    "message": event.message,
+                    "timestamp": event.timestamp.isoformat() if event.timestamp else None,
+                    "data": event.data
+                }
+                yield f"data: {json.dumps(event_data)}\n\n"
+                
+                # Exit if run is complete
+                if event.event_type in ("complete", "error", "failed"):
+                    break
+                    
+        except asyncio.CancelledError:
+            logger.info(f"SSE stream cancelled for run {run_id}")
+        except Exception as e:
+            logger.error(f"Error streaming events for run {run_id}: {e}")
+            yield f"data: {json.dumps({'event_type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )

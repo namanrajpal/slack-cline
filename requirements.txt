@@ -18,6 +18,7 @@ httpx==0.25.2
 # Development and Monitoring
 structlog==23.2.0
 python-multipart==0.0.6
+debugpy==1.8.0
 
 # Testing Dependencies (for development)
 pytest==7.4.3

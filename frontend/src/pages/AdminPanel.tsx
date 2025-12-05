@@ -1,6 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { apiClient } from '../api/client';
 import type { Project, TestSlackRequest, TestSlackResponse } from '../types';
+
+interface StreamEvent {
+  event_type: string;
+  message: string;
+  timestamp?: string;
+  status?: string;
+  data?: Record<string, string>;
+}
 
 export default function AdminPanel() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -14,11 +22,28 @@ export default function AdminPanel() {
     team_domain: 'test-workspace'
   });
   const [testing, setTesting] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [result, setResult] = useState<TestSlackResponse | null>(null);
+  const [events, setEvents] = useState<StreamEvent[]>([]);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const eventsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadProjects();
+    
+    // Cleanup on unmount
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
   }, []);
+  
+  // Auto-scroll to bottom when new events arrive
+  useEffect(() => {
+    eventsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [events]);
 
   const loadProjects = async () => {
     try {
@@ -32,14 +57,70 @@ export default function AdminPanel() {
     }
   };
 
+  const startEventStream = (runId: string) => {
+    // Close existing connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+    }
+    
+    setStreaming(true);
+    setEvents([]);
+    setCurrentRunId(runId);
+    
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const eventSource = new EventSource(`${apiUrl}/api/runs/${runId}/events`);
+    eventSourceRef.current = eventSource;
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data: StreamEvent = JSON.parse(event.data);
+        setEvents(prev => [...prev, data]);
+        
+        // Stop streaming on completion
+        if (data.event_type === 'complete' || data.event_type === 'error') {
+          setStreaming(false);
+          eventSource.close();
+        }
+      } catch (err) {
+        console.error('Failed to parse event:', err);
+      }
+    };
+    
+    eventSource.onerror = () => {
+      setStreaming(false);
+      eventSource.close();
+      setEvents(prev => [...prev, {
+        event_type: 'error',
+        message: 'Connection lost'
+      }]);
+    };
+  };
+  
+  const stopEventStream = () => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    setStreaming(false);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setTesting(true);
     setResult(null);
+    setEvents([]);
+    setCurrentRunId(null);
 
     try {
       const response = await apiClient.simulateSlackCommand(formData);
       setResult(response);
+      
+      // Extract run_id from response payload if available
+      const runId = response.response_payload?.run_id;
+      if (runId && response.success) {
+        // Start streaming events for this run
+        startEventStream(runId);
+      }
     } catch (err) {
       setResult({
         success: false,
@@ -197,34 +278,16 @@ export default function AdminPanel() {
                 </div>
               </div>
 
-              {result.run_id && (
+              {currentRunId && (
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
                   <p className="text-sm font-medium text-blue-900">Run ID:</p>
-                  <p className="text-sm text-blue-700 font-mono">{result.run_id}</p>
-                </div>
-              )}
-
-              {result.request_payload && (
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Request Payload:</p>
-                  <pre className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs overflow-auto max-h-48">
-                    {JSON.stringify(result.request_payload, null, 2)}
-                  </pre>
-                </div>
-              )}
-
-              {result.response_payload && (
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Response Payload:</p>
-                  <pre className="bg-gray-50 border border-gray-200 rounded-md p-3 text-xs overflow-auto max-h-48">
-                    {JSON.stringify(result.response_payload, null, 2)}
-                  </pre>
+                  <p className="text-sm text-blue-700 font-mono">{currentRunId}</p>
                 </div>
               )}
 
               <div className="flex space-x-2 pt-2">
                 <button
-                  onClick={() => setResult(null)}
+                  onClick={() => { setResult(null); setEvents([]); stopEventStream(); }}
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Clear Results
@@ -240,6 +303,59 @@ export default function AdminPanel() {
           )}
         </div>
       </div>
+
+      {/* Live Output */}
+      {(events.length > 0 || streaming) && (
+        <div className="bg-gray-900 shadow rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <div className="flex items-center">
+              <span className="text-green-400 font-medium">Live Output</span>
+              {streaming && (
+                <span className="ml-2 flex items-center text-yellow-400 text-sm">
+                  <span className="animate-pulse mr-1">●</span>
+                  Streaming...
+                </span>
+              )}
+            </div>
+            {streaming && (
+              <button
+                onClick={stopEventStream}
+                className="px-3 py-1 text-sm bg-red-600 hover:bg-red-700 text-white rounded-md"
+              >
+                Stop
+              </button>
+            )}
+          </div>
+          <div className="p-4 font-mono text-sm max-h-96 overflow-y-auto bg-gray-950">
+            {events.map((event, index) => (
+              <div 
+                key={index} 
+                className={`py-1 ${
+                  event.event_type === 'error' ? 'text-red-400' :
+                  event.event_type === 'complete' ? 'text-green-400' :
+                  event.event_type === 'connected' ? 'text-blue-400' :
+                  event.event_type === 'status' ? 'text-yellow-400' :
+                  'text-gray-300'
+                }`}
+              >
+                <span className="text-gray-500 mr-2">
+                  {event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : ''}
+                </span>
+                <span className={`mr-2 ${
+                  event.event_type === 'step' ? 'text-cyan-400' :
+                  event.event_type === 'complete' ? 'text-green-400' :
+                  event.event_type === 'error' ? 'text-red-400' :
+                  'text-gray-500'
+                }`}>
+                  [{event.event_type}]
+                </span>
+                {event.message}
+              </div>
+            ))}
+            <div ref={eventsEndRef} />
+          </div>
+        </div>
+      )}
 
       {/* Instructions */}
       <div className="bg-white shadow rounded-lg p-6">

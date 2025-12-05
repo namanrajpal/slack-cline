@@ -7,8 +7,9 @@ and responses, including project management, run queries, and configuration.
 
 from typing import Optional
 from datetime import datetime
+from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 
 
 class ProjectCreateSchema(BaseModel):
@@ -30,23 +31,24 @@ class ProjectUpdateSchema(BaseModel):
 class ProjectResponseSchema(BaseModel):
     """Schema for project response."""
     
-    id: str
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
     tenant_id: str
     slack_channel_id: str
     repo_url: str
     default_ref: str
     created_at: datetime
     updated_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class RunResponseSchema(BaseModel):
     """Schema for run response."""
     
-    id: str
-    project_id: str
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    project_id: UUID
     tenant_id: str
     status: str
     task_prompt: str
@@ -58,9 +60,6 @@ class RunResponseSchema(BaseModel):
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
     summary: Optional[str]
-    
-    class Config:
-        from_attributes = True
 
 
 class ApiKeyConfigSchema(BaseModel):

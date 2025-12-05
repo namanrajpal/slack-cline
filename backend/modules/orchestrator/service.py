@@ -312,7 +312,7 @@ class RunOrchestratorService:
             "event_received", 
             run_id,
             cline_run_id=event.cline_run_id,
-            event_type=event.event_type,
+            cli_event_type=event.event_type,  # Renamed to avoid conflict with positional event_type
             message=event.message
         )
         
@@ -345,10 +345,11 @@ class RunOrchestratorService:
                 if run.is_completed:
                     await self._stop_event_stream(run_id)
                     # Clean up Cline instance and workspace
-                    if metadata:
+                    run_metadata = self._run_metadata.get(run_id)
+                    if run_metadata:
                         await self.cli_client.cleanup_instance(
-                            metadata["instance_address"],
-                            metadata["workspace_path"]
+                            run_metadata["instance_address"],
+                            run_metadata["workspace_path"]
                         )
                         del self._run_metadata[run_id]
                     

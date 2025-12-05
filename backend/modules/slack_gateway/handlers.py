@@ -189,9 +189,11 @@ async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str)
             try:
                 run = await orchestrator.start_run(start_command, session)
                 
-                # Return immediate response - the orchestrator will post updates
+                # Return immediate response with run_id for dashboard SSE connection
+                # The orchestrator will post progress updates to Slack
                 return JSONResponse(content={
                     "response_type": "in_channel",
+                    "run_id": str(run.id),  # Include run_id for dashboard streaming
                     "text": f"🚀 Starting Cline run: `{task_prompt}`",
                     "blocks": [
                         {

@@ -7,11 +7,14 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
+      - "5678:5678"  # Python debugger port
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/slack_cline
       - DEBUG=true
       - LOG_LEVEL=DEBUG
       - CLINE_DIR=/home/app/.cline
+    # Enable debugger (optional - comment out for normal mode)
+    command: python -m debugpy --listen 0.0.0.0:5678 main.py
     volumes:
       - ./backend:/app
       - cline-workspaces:/home/app/workspaces

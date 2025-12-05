@@ -84,20 +84,19 @@ class ClineCliClient:
             workspace_path = await self._clone_repository(repo_url, ref)
             logger.info(f"Cloned {repo_url} to {workspace_path}")
             
-            # 2. Create Cline instance for this workspace
-            instance_address = await self._create_instance(workspace_path)
-            logger.info(f"Created Cline instance at {instance_address}")
-            
-            # 3. Configure authentication before creating task
+            # 2. Configure authentication FIRST (creates config file needed by instance)
             await self._configure_auth(
-                instance_address,
                 workspace_path,
                 provider,
                 api_key,
                 model_id,
                 base_url
             )
-            logger.info(f"Configured {provider} authentication for instance {instance_address}")
+            logger.info(f"Configured {provider} authentication")
+            
+            # 3. Create Cline instance (now config exists)
+            instance_address = await self._create_instance(workspace_path)
+            logger.info(f"Created Cline instance at {instance_address}")
             
             # 4. Create task with YOLO mode (autonomous)
             task_id = await self._create_task(instance_address, workspace_path, prompt)
@@ -290,7 +289,6 @@ class ClineCliClient:
     
     async def _configure_auth(
         self,
-        instance_address: str,
         workspace_path: str,
         provider: str,
         api_key: str,
@@ -298,10 +296,12 @@ class ClineCliClient:
         base_url: Optional[str] = None
     ) -> None:
         """
-        Configure authentication for a Cline instance using CLI auth command.
+        Configure authentication using CLI auth command.
+        
+        This must be called BEFORE creating an instance, as the instance
+        requires the config file created by this command.
         
         Args:
-            instance_address: Cline instance address
             workspace_path: Workspace directory
             provider: Provider ID (e.g., "anthropic", "openai-native", "openrouter")
             api_key: API key for the provider
@@ -316,7 +316,6 @@ class ClineCliClient:
             "--provider", provider,
             "--apikey", api_key,
             "--modelid", model_id,
-            "--address", instance_address,
             "--output-format", "json"
         ]
         
@@ -324,8 +323,11 @@ class ClineCliClient:
         if base_url:
             cmd.extend(["--baseurl", base_url])
         
+        logger.info(f"Running auth command: cline auth --provider {provider} --modelid {model_id}")
+        
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,  # Prevent stdin blocking
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workspace_path
@@ -333,23 +335,20 @@ class ClineCliClient:
         
         stdout, stderr = await process.communicate()
         
-        if process.returncode != 0:
-            # Try to parse JSON error if available
-            try:
-                error_data = json.loads(stderr.decode('utf-8'))
-                error_msg = error_data.get('error', stderr.decode('utf-8'))
-            except json.JSONDecodeError:
-                error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
-            
-            raise RuntimeError(f"Failed to configure authentication: {error_msg}")
+        # Log full CLI output for debugging
+        stdout_text = stdout.decode('utf-8') if stdout else ""
+        stderr_text = stderr.decode('utf-8') if stderr else ""
         
-        # Parse success response
-        try:
-            result = json.loads(stdout.decode('utf-8'))
-            logger.info(f"Auth configured successfully: {result}")
-        except json.JSONDecodeError:
-            # If JSON parse fails, just log the raw output
-            logger.info(f"Auth configured (raw output): {stdout.decode('utf-8')}")
+        logger.info(f"CLI auth command completed (exit code: {process.returncode})")
+        if stdout_text:
+            logger.info(f"CLI auth stdout:\n{stdout_text}")
+        if stderr_text:
+            logger.warning(f"CLI auth stderr:\n{stderr_text}")
+        
+        if process.returncode != 0:
+            raise RuntimeError(f"Failed to configure authentication (exit {process.returncode}): {stderr_text or 'Unknown error'}")
+        
+        logger.info("Authentication configured successfully")
     
     async def _clone_repository(self, repo_url: str, ref: str) -> str:
         """
@@ -387,57 +386,100 @@ class ClineCliClient:
         """
         Create a new Cline instance in the workspace.
         
+        The `cline instance new` command runs in foreground mode, keeping the
+        process alive while the instance is running. We need to read output
+        incrementally and return as soon as we find the instance address.
+        
         Args:
             workspace_path: Directory where Cline will run
             
         Returns:
-            str: Instance address (e.g., "localhost:50052")
+            str: Instance address (e.g., "127.0.0.1:50052")
         """
-        cmd = [
-            "cline", "instance", "new",
-            "--output-format", "json"
-        ]
+        cmd = ["cline", "instance", "new"]
+        
+        logger.info(f"Creating Cline instance in {workspace_path}")
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,  # Prevent stdin blocking
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workspace_path
         )
         
-        stdout, stderr = await process.communicate()
+        # Read output line by line - don't wait for process to complete
+        # The process runs in foreground mode and won't exit while instance is alive
+        instance_address = None
+        output_lines = []
         
-        if process.returncode != 0:
-            error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
-            raise RuntimeError(f"Failed to create instance: {error_msg}")
-        
-        # Parse JSON output to get instance address
         try:
-            result = json.loads(stdout.decode('utf-8'))
-            # Try common field names for instance address
+            # Read with timeout to avoid hanging forever
+            while True:
+                try:
+                    line_bytes = await asyncio.wait_for(
+                        process.stdout.readline(),
+                        timeout=30.0  # 30 second timeout per line
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout waiting for cline instance output")
+                    break
+                
+                if not line_bytes:
+                    # EOF reached
+                    break
+                
+                line = line_bytes.decode('utf-8').strip()
+                output_lines.append(line)
+                logger.info(f"CLI instance new output: {line}")
+                
+                # Look for "Address: X.X.X.X:PORT" pattern
+                if line.startswith('Address:'):
+                    instance_address = line.split(':', 1)[1].strip()
+                    logger.info(f"Parsed instance address: {instance_address}")
+                    break
+                
+                # Also check for address in format "Address: 127.0.0.1:PORT"
+                if 'Address:' in line:
+                    parts = line.split('Address:')
+                    if len(parts) > 1:
+                        instance_address = parts[1].strip()
+                        logger.info(f"Parsed instance address (alt): {instance_address}")
+                        break
+        
+        except Exception as e:
+            logger.error(f"Error reading instance output: {e}")
+        
+        # Log collected output
+        full_output = '\n'.join(output_lines)
+        logger.info(f"CLI instance new collected output:\n{full_output}")
+        
+        if instance_address:
+            logger.info(f"Successfully created instance at {instance_address}")
+            # Note: We don't terminate the process - it manages the instance lifecycle
+            # The instance will be cleaned up when we call cleanup_instance()
+            return instance_address
+        
+        # If we didn't find the address, check if process exited with error
+        if process.returncode is not None and process.returncode != 0:
+            stderr_bytes = await process.stderr.read()
+            stderr_text = stderr_bytes.decode('utf-8') if stderr_bytes else ""
+            raise RuntimeError(f"Failed to create instance (exit {process.returncode}): {stderr_text or 'Unknown error'}")
+        
+        # Fallback: try JSON parsing if output looks like JSON
+        try:
+            result = json.loads(full_output)
             instance_address = (
                 result.get('address') or 
                 result.get('instance_address') or 
-                result.get('instance') or
-                result.get('grpc_address')
+                result.get('instance')
             )
-            
-            if not instance_address:
-                raise RuntimeError(f"No instance address found in JSON response: {result}")
-            
-            return instance_address
-            
-        except json.JSONDecodeError as e:
-            # Fallback to text parsing for older CLI versions
-            output = stdout.decode('utf-8').strip()
-            # Output format: "Started instance at localhost:50052"
-            instance_address = output.split()[-1] if output else None
-            
-            if not instance_address:
-                raise RuntimeError(f"Failed to parse instance address from output: {output}")
-            
-            logger.warning(f"CLI returned non-JSON output, falling back to text parsing")
-            return instance_address
+            if instance_address:
+                return instance_address
+        except json.JSONDecodeError:
+            pass
+        
+        raise RuntimeError(f"Failed to parse instance address from output: {full_output[:500]}")
     
     async def _create_task(
         self, 
@@ -466,6 +508,7 @@ class ClineCliClient:
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,  # Prevent stdin blocking
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workspace_path
@@ -473,17 +516,28 @@ class ClineCliClient:
         
         stdout, stderr = await process.communicate()
         
+        # Log full CLI output for debugging
+        stdout_text = stdout.decode('utf-8') if stdout else ""
+        stderr_text = stderr.decode('utf-8') if stderr else ""
+        
+        logger.info(f"CLI task new command completed (exit code: {process.returncode})")
+        if stdout_text:
+            logger.info(f"CLI task new stdout:\n{stdout_text}")
+        if stderr_text:
+            logger.warning(f"CLI task new stderr:\n{stderr_text}")
+        
         if process.returncode != 0:
-            error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
-            raise RuntimeError(f"Failed to create task: {error_msg}")
+            raise RuntimeError(f"Failed to create task (exit {process.returncode}): {stderr_text or 'Unknown error'}")
         
         # Parse JSON output to get task ID
         try:
-            output = json.loads(stdout.decode('utf-8'))
+            output = json.loads(stdout_text)
             task_id = output.get('task_id', 'unknown')
+            logger.info(f"Parsed task ID: {task_id}")
         except json.JSONDecodeError:
             # Fallback: use instance address as task identifier
             task_id = instance_address
+            logger.warning(f"Could not parse task ID from JSON, using instance address: {task_id}")
         
         return task_id
 

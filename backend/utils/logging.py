@@ -83,13 +83,13 @@ def log_request(method: str, path: str, status_code: int, duration: float, **kwa
     )
 
 
-def log_run_event(run_id: str, event_type: str, cline_run_id: str = None, **kwargs) -> None:
+def log_run_event(event_type: str, run_id: str, cline_run_id: str = None, **kwargs) -> None:
     """
     Log a run-related event with structured data.
     
     Args:
-        run_id: Run identifier
         event_type: Type of event
+        run_id: Run identifier
         cline_run_id: Cline Core run identifier (optional)
         **kwargs: Additional context
     """

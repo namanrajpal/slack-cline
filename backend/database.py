@@ -19,9 +19,10 @@ from config import settings
 Base = declarative_base()
 
 # Create async engine
+# Disable SQL query logging to reduce verbosity - use structlog for important events
 engine = create_async_engine(
     settings.database_url,
-    echo=settings.debug,  # Log SQL queries in debug mode
+    echo=False,  # Disabled to reduce log noise; use LOG_LEVEL=DEBUG for SQLAlchemy logs if needed
     poolclass=NullPool,  # Use NullPool for development simplicity
     future=True,
 )
