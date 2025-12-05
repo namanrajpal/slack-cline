@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from config import settings
 from database import create_tables
 from modules.slack_gateway.handlers import slack_router
+from modules.dashboard.routes import router as dashboard_router
 from utils.logging import setup_logging
 
 
@@ -46,9 +47,9 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins,
+    allow_origins=settings.allowed_origins + ["http://localhost:3001", "http://127.0.0.1:3001"],
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -88,6 +89,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Include routers
 app.include_router(slack_router, prefix="/slack", tags=["slack"])
+app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
 
 
 if __name__ == "__main__":
