@@ -490,6 +490,9 @@ class ClineCliClient:
         """
         Create a new task on the specified instance.
         
+        Uses -y (YOLO/autonomous mode) and -m act (ACT mode) for
+        fully autonomous execution without user interaction.
+        
         Args:
             instance_address: Cline instance address
             workspace_path: Workspace directory
@@ -500,11 +503,12 @@ class ClineCliClient:
         """
         cmd = [
             "cline", "task", "new",
-            "-y",  # YOLO mode (autonomous)
+            "-y",  # YOLO mode - autonomous, no user interaction required
+            "-m", "act",  # Start in ACT mode (not PLAN mode) for immediate execution
             "--address", instance_address,
-            "--output-format", "json",
             prompt
         ]
+        # Note: -o (oneshot) is only for instant task syntax, not task new command
         
         process = await asyncio.create_subprocess_exec(
             *cmd,
