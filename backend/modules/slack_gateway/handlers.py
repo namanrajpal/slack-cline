@@ -34,13 +34,28 @@ async def slack_health():
 @slack_router.post("/events")
 async def handle_slack_events(request: Request, background_tasks: BackgroundTasks):
     """
-    Handle Slack slash commands like `/cline run <task>`.
+    Handle Slack events including slash commands and event subscriptions.
     
-    This endpoint receives slash command webhooks from Slack and processes them
-    into internal command objects for the Run Orchestrator.
+    This endpoint receives:
+    1. URL verification challenges (Event Subscriptions setup)
+    2. Slash command webhooks from Slack
+    3. Event callbacks (messages, reactions, etc.)
     """
     # Get raw body ONCE for both signature verification and parsing
     body = await request.body()
+    
+    # Check for URL verification challenge (Event Subscriptions setup)
+    # This happens when you configure Event Subscriptions in Slack
+    try:
+        payload = json.loads(body.decode('utf-8'))
+        if payload.get("type") == "url_verification":
+            challenge = payload.get("challenge", "")
+            logger.info(f"Received URL verification challenge: {challenge[:20]}...")
+            return JSONResponse(content={"challenge": challenge})
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Not JSON, probably form-encoded slash command - continue normally
+        pass
+    
     timestamp, signature = extract_slack_headers(request)
     
     # Verify Slack signature with raw body
