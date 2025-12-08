@@ -15,7 +15,7 @@ import json
 import os
 import subprocess
 import tempfile
-from typing import AsyncIterator, Dict, Optional
+from typing import AsyncIterator, Dict, Literal, Optional
 from datetime import datetime
 from pathlib import Path
 
@@ -84,7 +84,11 @@ class ClineCliClient:
             workspace_path = await self._clone_repository(repo_url, ref)
             logger.info(f"Cloned {repo_url} to {workspace_path}")
             
-            # 2. Configure authentication FIRST (creates config file needed by instance)
+            # 2. Install dependencies (auto-detect project type)
+            # await self._setup_workspace(workspace_path)
+            # logger.info(f"Installed dependencies in {workspace_path}")
+            
+            # 3. Configure authentication FIRST (creates config file needed by instance)
             await self._configure_auth(
                 workspace_path,
                 provider,
@@ -94,11 +98,11 @@ class ClineCliClient:
             )
             logger.info(f"Configured {provider} authentication")
             
-            # 3. Create Cline instance (now config exists)
+            # 4. Create Cline instance (now config exists)
             instance_address = await self._create_instance(workspace_path)
             logger.info(f"Created Cline instance at {instance_address}")
             
-            # 4. Create task with YOLO mode (autonomous)
+            # 5. Create task with YOLO mode (autonomous)
             task_id = await self._create_task(instance_address, workspace_path, prompt)
             logger.info(f"Created task {task_id} on instance {instance_address}")
             
@@ -132,6 +136,9 @@ class ClineCliClient:
         """
         Stream events from a Cline task using CLI output.
         
+        In PLAN mode, implements timeout-based detection of plan completion since
+        Cline waits indefinitely for user input after presenting the plan.
+        
         Args:
             instance_address: Cline instance address
             workspace_path: Workspace directory path
@@ -142,11 +149,16 @@ class ClineCliClient:
         """
         logger.info(f"Starting event stream for task {task_id}")
         
+        # Timeout configuration for PLAN mode idle detection
+        PLAN_IDLE_TIMEOUT = 30.0  # seconds - if no events for this long, assume plan is complete
+        MAX_TIMEOUT_RETRIES = 2  # Maximum number of times to retry after timeout
+        timeout_count = 0
+        
         try:
-            # Use `cline task view --follow-complete` to stream until completion
+            # Use `cline task view --follow` (not --follow-complete) for better control
             cmd = [
                 "cline", "task", "view",
-                "--follow-complete",
+                "--follow",  # Follow forever (we'll timeout ourselves)
                 "--output-format", "plain",
                 "--address", instance_address
             ]
@@ -154,38 +166,147 @@ class ClineCliClient:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout
                 cwd=workspace_path
             )
             
             line_count = 0
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                
-                line_text = line.decode('utf-8').strip()
-                if not line_text:
-                    continue
-                
-                line_count += 1
-                
-                # Create event from CLI output
-                event = RunEventSchema(
-                    run_id=task_id,
-                    cline_run_id=task_id,
-                    event_type="step",
-                    timestamp=datetime.utcnow(),
-                    data={"line_number": str(line_count)},
-                    message=line_text
-                )
-                
-                yield event
-                
-                log_run_event("cli_output", task_id, message=line_text[:100])
+            last_event_time = asyncio.get_event_loop().time()
             
-            # Wait for process to complete
+            while True:
+                try:
+                    # Read with timeout to detect idle state
+                    line = await asyncio.wait_for(
+                        process.stdout.readline(),
+                        timeout=PLAN_IDLE_TIMEOUT
+                    )
+                    
+                    if not line:
+                        # EOF - process exited
+                        break
+                    
+                    line_text = line.decode('utf-8').strip()
+                    if not line_text:
+                        continue
+                    
+                    line_count += 1
+                    last_event_time = asyncio.get_event_loop().time()
+                    
+                    # Detect event type
+                    event_type = "step"
+                    
+                    # Check for task completion markers
+                    if "### Task completed" in line_text:
+                        event_type = "task_response"
+                    elif "### Progress" in line_text:
+                        event_type = "progress"
+                    
+                    # Check for approval request patterns
+                    approval_patterns = [
+                        "wants to execute",
+                        "Approve?",
+                        "approve this action",
+                        "waiting for approval",
+                        "Do you want to proceed",
+                        "wants to run",
+                        "wants to write",
+                        "wants to read",
+                        "Allow this action",
+                        "### Tool use request",
+                        "execute_command:",
+                        "write_to_file:",
+                        "read_file:",
+                    ]
+                    
+                    for pattern in approval_patterns:
+                        if pattern.lower() in line_text.lower():
+                            event_type = "approval_required"
+                            break
+                    
+                    # Create event from CLI output
+                    event = RunEventSchema(
+                        run_id=task_id,
+                        cline_run_id=task_id,
+                        event_type=event_type,
+                        timestamp=datetime.utcnow(),
+                        data={
+                            "line_number": str(line_count),
+                            "requires_approval": event_type == "approval_required"
+                        },
+                        message=line_text
+                    )
+                    
+                    yield event
+                    log_run_event("cli_output", task_id, message=line_text[:100])
+                    
+                except asyncio.TimeoutError:
+                    # No events for PLAN_IDLE_TIMEOUT seconds
+                    # Cline is likely waiting for input (plan complete)
+                    timeout_count += 1
+                    logger.info(f"Idle timeout reached ({PLAN_IDLE_TIMEOUT}s, attempt {timeout_count}/{MAX_TIMEOUT_RETRIES}), checking if plan is complete...")
+                    
+                    # Fetch the current state to get the plan (request full output for plans)
+                    plan_summary = await self.get_task_summary(instance_address, workspace_path, full_output=True)
+                    
+                    # Enhanced plan detection heuristics
+                    is_complete_plan = self._is_complete_plan(plan_summary, line_count)
+                    
+                    if is_complete_plan:
+                        logger.info(f"Plan detected ({len(plan_summary)} chars, {line_count} lines), posting for approval")
+                        
+                        yield RunEventSchema(
+                            run_id=task_id,
+                            cline_run_id=task_id,
+                            event_type="plan_complete",
+                            timestamp=datetime.utcnow(),
+                            data={
+                                "idle_timeout": str(PLAN_IDLE_TIMEOUT),
+                                "plan_length": str(len(plan_summary)),
+                                "line_count": str(line_count)
+                            },
+                            message=plan_summary
+                        )
+                        
+                        # Stop streaming - plan is ready for approval
+                        process.kill()
+                        await process.wait()
+                        return
+                    elif timeout_count >= MAX_TIMEOUT_RETRIES:
+                        # Exceeded max retries - assume plan is complete even if not detected
+                        logger.warning(f"Max timeout retries ({MAX_TIMEOUT_RETRIES}) reached, assuming plan is complete")
+                        
+                        yield RunEventSchema(
+                            run_id=task_id,
+                            cline_run_id=task_id,
+                            event_type="plan_complete",
+                            timestamp=datetime.utcnow(),
+                            data={
+                                "idle_timeout": str(PLAN_IDLE_TIMEOUT),
+                                "plan_length": str(len(plan_summary)),
+                                "line_count": str(line_count),
+                                "forced_after_retries": "true"
+                            },
+                            message=plan_summary or "Plan detection timed out - please review task output"
+                        )
+                        
+                        # Stop streaming
+                        process.kill()
+                        await process.wait()
+                        return
+                    else:
+                        # Probably just processing or slow - keep waiting
+                        logger.info(f"Timeout but plan not complete yet (still processing), continuing... ({timeout_count}/{MAX_TIMEOUT_RETRIES})")
+                        continue
+            
+            # Process exited naturally
             await process.wait()
+            
+            # Fetch final summary
+            final_summary = "Task completed successfully"
+            if process.returncode == 0:
+                logger.info("Fetching final task summary...")
+                final_summary = await self.get_task_summary(instance_address, workspace_path)
+                logger.info(f"Task summary captured ({len(final_summary)} chars)")
             
             # Final completion event
             if process.returncode == 0:
@@ -194,8 +315,11 @@ class ClineCliClient:
                     cline_run_id=task_id,
                     event_type="complete",
                     timestamp=datetime.utcnow(),
-                    data={"exit_code": str(process.returncode)},
-                    message="Task completed successfully"
+                    data={
+                        "exit_code": str(process.returncode),
+                        "has_summary": str(len(final_summary) > 50)
+                    },
+                    message=final_summary
                 )
             else:
                 yield RunEventSchema(
@@ -211,6 +335,168 @@ class ClineCliClient:
             logger.error(f"Error streaming events for task {task_id}: {e}")
             raise
     
+    def _is_complete_plan(self, plan_summary: str, line_count: int) -> bool:
+        """
+        Determine if the fetched plan summary represents a complete plan.
+        
+        Uses multiple heuristics to avoid false positives during active planning:
+        - Minimum content length (avoid detecting during initial exploration)
+        - Look for plan-specific markers (structured content, sections)
+        - Check for "still working" indicators (checkpoints, API calls)
+        
+        Args:
+            plan_summary: The plan text fetched from task view
+            line_count: Number of lines processed so far
+            
+        Returns:
+            bool: True if this appears to be a complete plan ready for approval
+        """
+        if not plan_summary:
+            return False
+        
+        # Require substantial content (avoid early detection during file reading)
+        if len(plan_summary) < 500:
+            logger.debug(f"Plan too short ({len(plan_summary)} chars), waiting for more content")
+            return False
+        
+        # Check for "still working" indicators (checkpoint messages, API calls in progress)
+        still_working_patterns = [
+            "Checkpoint created",
+            "API request",
+            "↑", "↓", "←", "→",  # Token usage indicators in progress
+            "Reading file",
+            "Searching",
+            "Analyzing",
+        ]
+        
+        for pattern in still_working_patterns:
+            if pattern in plan_summary:
+                logger.debug(f"Found 'still working' pattern: {pattern}")
+                return False
+        
+        # Look for plan completion indicators with more flexible matching
+        plan_complete_markers = {
+            "section_header": ["## ", "### "],  # Strong indicator - section/subsection headers
+            "plan_intro": ["Here's", "This approach", "My plan"],  # Plan introduction phrases
+            "numbered_list": ["1.", "2.", "3."],  # Multiple numbered items
+            "plan_keywords": ["### Progress", "Steps:", "I'll proceed", "I will"],
+        }
+        
+        # Count different types of markers
+        has_section_header = any(marker in plan_summary for marker in plan_complete_markers["section_header"])
+        has_plan_intro = any(marker in plan_summary for marker in plan_complete_markers["plan_intro"])
+        numbered_items = sum(1 for marker in plan_complete_markers["numbered_list"] if marker in plan_summary)
+        has_keywords = any(marker in plan_summary for marker in plan_complete_markers["plan_keywords"])
+        
+        # Flexible detection: consider complete if we have strong indicators
+        # Strong signal: section headers + numbered list (2+ items)
+        if has_section_header and numbered_items >= 2:
+            logger.debug(f"Plan complete: section headers + {numbered_items} numbered items")
+            return True
+        
+        # Alternative: plan intro + numbered list
+        if has_plan_intro and numbered_items >= 2:
+            logger.debug(f"Plan complete: plan intro + {numbered_items} numbered items")
+            return True
+        
+        # Fallback: multiple strong indicators
+        total_indicators = sum([has_section_header, has_plan_intro, (numbered_items >= 2), has_keywords])
+        if total_indicators >= 2:
+            logger.debug(f"Plan complete: {total_indicators} strong indicators found")
+            return True
+        
+        logger.debug(f"Plan not complete: section_header={has_section_header}, plan_intro={has_plan_intro}, numbered_items={numbered_items}, keywords={has_keywords}")
+        return False
+    
+    async def get_task_summary(
+        self,
+        instance_address: str,
+        workspace_path: str,
+        full_output: bool = False
+    ) -> str:
+        """
+        Fetch the task summary or full output.
+        
+        The `cline task view --follow-complete` command exits BEFORE outputting
+        the "### Task completed" section. This method calls `cline task view`
+        (without --follow) to get the complete output including the final response.
+        
+        Args:
+            instance_address: Cline instance address
+            workspace_path: Workspace directory
+            full_output: If True, return full task output; if False, extract "Task completed" section
+            
+        Returns:
+            str: The task summary/response, or a default message if not available
+        """
+        cmd = [
+            "cline", "task", "view",
+            "--output-format", "plain",
+            "--address", instance_address
+        ]
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workspace_path
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                logger.warning(f"Failed to get task summary (exit {process.returncode})")
+                return "Task completed successfully"
+            
+            output = stdout.decode('utf-8') if stdout else ""
+            
+            # If full_output requested, return everything
+            if full_output:
+                logger.info(f"Returning full task output ({len(output)} chars)")
+                return output.strip()
+            
+            # Parse the "### Task completed" section from output
+            # This section contains Cline's final response to the user
+            summary_lines = []
+            in_task_completed = False
+            
+            for line in output.split('\n'):
+                stripped = line.strip()
+                
+                # Start capturing at "### Task completed"
+                if "### Task completed" in stripped:
+                    in_task_completed = True
+                    # Don't include the "### Task completed" header itself
+                    continue
+                
+                # Stop at "### Progress" (if it comes after Task completed)
+                if "### Progress" in stripped and in_task_completed:
+                    break
+                
+                # Capture content in the task completed section
+                if in_task_completed and stripped:
+                    summary_lines.append(stripped)
+            
+            if summary_lines:
+                summary = "\n".join(summary_lines)
+                logger.info(f"Extracted task summary ({len(summary_lines)} lines)")
+                return summary
+            else:
+                # Fallback: return last portion of output if no "### Task completed" found
+                lines = [l.strip() for l in output.split('\n') if l.strip()]
+                if len(lines) > 10:
+                    # Get last 20 lines as summary
+                    return "\n".join(lines[-20:])
+                elif lines:
+                    return "\n".join(lines)
+                else:
+                    return "Task completed successfully"
+                    
+        except Exception as e:
+            logger.error(f"Error getting task summary: {e}")
+            return "Task completed successfully"
+
     async def cancel_run(
         self, 
         instance_address: str,
@@ -350,6 +636,123 @@ class ClineCliClient:
         
         logger.info("Authentication configured successfully")
     
+    async def approve_plan(
+        self,
+        instance_address: str,
+        workspace_path: str,
+        message: str = "Proceed with the plan"
+    ) -> bool:
+        """
+        Approve Cline's plan and switch from PLAN mode to ACT mode with autonomous execution.
+        
+        This sends approval to proceed with the plan, switches to ACT mode,
+        and enables YOLO (autonomous) mode so Cline executes without further approval.
+        
+        Args:
+            instance_address: Cline instance address
+            workspace_path: Workspace directory
+            message: Message to send with approval (default: "Proceed with the plan")
+            
+        Returns:
+            bool: True if approval was sent successfully
+        """
+        cmd = [
+            "cline", "task", "send",
+            "-y",  # Enable YOLO/autonomous mode
+            "-m", "act",  # Switch to ACT mode
+            "--approve",  # Approve the plan
+            "--address", instance_address,
+            message
+        ]
+        
+        logger.info(f"Approving plan and switching to ACT mode (YOLO) for instance {instance_address}")
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workspace_path
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            stdout_text = stdout.decode('utf-8') if stdout else ""
+            stderr_text = stderr.decode('utf-8') if stderr else ""
+            
+            if process.returncode == 0:
+                logger.info("Plan approved, switched to autonomous ACT mode")
+                return True
+            else:
+                logger.error(f"Failed to approve plan: {stderr_text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error approving plan: {e}")
+            return False
+
+    async def send_response(
+        self,
+        instance_address: str,
+        workspace_path: str,
+        action: Literal["approve", "deny"],
+        message: Optional[str] = None
+    ) -> bool:
+        """
+        Send an approval or denial response to a running Cline task.
+        
+        Use this when Cline is waiting for user approval to execute a command
+        or perform an action (during execution, not for approving the initial plan).
+        
+        For approving the initial plan and switching to ACT mode, use approve_plan() instead.
+        
+        Args:
+            instance_address: Cline instance address
+            workspace_path: Workspace directory
+            action: "approve" or "deny"
+            message: Optional message to send with the response
+            
+        Returns:
+            bool: True if response was sent successfully
+        """
+        cmd = ["cline", "task", "send", "--address", instance_address]
+        
+        if action == "approve":
+            cmd.append("--approve")
+        elif action == "deny":
+            cmd.append("--deny")
+        
+        if message:
+            cmd.append(message)
+        
+        logger.info(f"Sending {action} response to instance {instance_address}")
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workspace_path
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            stdout_text = stdout.decode('utf-8') if stdout else ""
+            stderr_text = stderr.decode('utf-8') if stderr else ""
+            
+            if process.returncode == 0:
+                logger.info(f"Response sent successfully: {action}")
+                return True
+            else:
+                logger.error(f"Failed to send response: {stderr_text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error sending response: {e}")
+            return False
+
     async def _clone_repository(self, repo_url: str, ref: str) -> str:
         """
         Clone repository to a temporary workspace.
@@ -490,8 +893,8 @@ class ClineCliClient:
         """
         Create a new task on the specified instance.
         
-        Uses -y (YOLO/autonomous mode) and -m act (ACT mode) for
-        fully autonomous execution without user interaction.
+        Starts in PLAN mode to allow user review before execution.
+        User must approve the plan via approve_plan() to switch to ACT mode.
         
         Args:
             instance_address: Cline instance address
@@ -503,12 +906,11 @@ class ClineCliClient:
         """
         cmd = [
             "cline", "task", "new",
-            "-y",  # YOLO mode - autonomous, no user interaction required
-            "-m", "act",  # Start in ACT mode (not PLAN mode) for immediate execution
+            "-m", "plan",  # Start in PLAN mode - Cline creates a plan first
             "--address", instance_address,
             prompt
         ]
-        # Note: -o (oneshot) is only for instant task syntax, not task new command
+        # NO -y flag - user must approve the plan before execution
         
         process = await asyncio.create_subprocess_exec(
             *cmd,

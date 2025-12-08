@@ -18,6 +18,10 @@ from modules.slack_gateway.handlers import slack_router
 from modules.dashboard.routes import router as dashboard_router
 from utils.logging import setup_logging
 
+# Reduce Slack SDK verbosity
+logging.getLogger("slack_sdk").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

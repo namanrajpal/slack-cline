@@ -66,6 +66,18 @@ class ApiClient {
     return response.data;
   }
 
+  async respondToRun(
+    runId: string, 
+    action: 'approve' | 'deny', 
+    message?: string
+  ): Promise<{ success: boolean; message: string; action: string; run_id: string }> {
+    const response = await api.post(`/api/runs/${runId}/respond`, {
+      action,
+      message
+    });
+    return response.data;
+  }
+
   // ============================================================================
   // CONFIGURATION
   // ============================================================================

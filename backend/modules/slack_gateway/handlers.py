@@ -9,7 +9,7 @@ signature verification, and conversion to internal commands.
 import json
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from config import settings
@@ -32,33 +32,47 @@ async def slack_health():
 
 
 @slack_router.post("/events")
-async def handle_slack_events(
-    request: Request,
-    # Slack sends slash commands as form data
-    token: str = Form(...),
-    team_id: str = Form(...),
-    team_domain: str = Form(...), 
-    channel_id: str = Form(...),
-    channel_name: str = Form(...),
-    user_id: str = Form(...),
-    user_name: str = Form(...),
-    command: str = Form(...),
-    text: str = Form(default=""),
-    response_url: str = Form(...),
-    trigger_id: str = Form(...)
-):
+async def handle_slack_events(request: Request, background_tasks: BackgroundTasks):
     """
     Handle Slack slash commands like `/cline run <task>`.
     
     This endpoint receives slash command webhooks from Slack and processes them
     into internal command objects for the Run Orchestrator.
     """
-    # Get raw body for signature verification
+    # Get raw body ONCE for both signature verification and parsing
     body = await request.body()
     timestamp, signature = extract_slack_headers(request)
     
-    # Verify Slack signature
+    # Verify Slack signature with raw body
     require_slack_verification(timestamp, body, signature)
+    
+    # Parse form data from body (manually to avoid double-read)
+    form_data = {}
+    try:
+        form_str = body.decode('utf-8')
+        from urllib.parse import parse_qs
+        parsed = parse_qs(form_str)
+        # parse_qs returns lists, so get first value of each
+        form_data = {k: v[0] if v else "" for k, v in parsed.items()}
+    except Exception as e:
+        logger.error(f"Failed to parse form data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid form data"
+        )
+    
+    # Extract form fields
+    token = form_data.get('token', '')
+    team_id = form_data.get('team_id', '')
+    team_domain = form_data.get('team_domain', '')
+    channel_id = form_data.get('channel_id', '')
+    channel_name = form_data.get('channel_name', '')
+    user_id = form_data.get('user_id', '')
+    user_name = form_data.get('user_name', '')
+    command = form_data.get('command', '')
+    text = form_data.get('text', '')
+    response_url = form_data.get('response_url', '')
+    trigger_id = form_data.get('trigger_id', '')
     
     log_slack_event(
         "slash_command_received",
@@ -86,7 +100,7 @@ async def handle_slack_events(
         
         # Handle different command types
         if command == "/cline":
-            return await handle_cline_command(command_data)
+            return await handle_cline_command(command_data, background_tasks)
         else:
             logger.warning(f"Unknown command: {command}")
             return JSONResponse(
@@ -107,7 +121,7 @@ async def handle_slack_events(
         )
 
 
-async def handle_cline_command(command_data: SlackCommandSchema) -> JSONResponse:
+async def handle_cline_command(command_data: SlackCommandSchema, background_tasks: BackgroundTasks) -> JSONResponse:
     """
     Handle `/cline` slash command.
     
@@ -115,6 +129,7 @@ async def handle_cline_command(command_data: SlackCommandSchema) -> JSONResponse
     
     Args:
         command_data: Validated command data from Slack
+        background_tasks: FastAPI background tasks for async processing
         
     Returns:
         JSONResponse: Response to send back to Slack
@@ -133,7 +148,7 @@ async def handle_cline_command(command_data: SlackCommandSchema) -> JSONResponse
     args = parts[1] if len(parts) > 1 else ""
     
     if subcommand == "run":
-        return await handle_run_command(command_data, args)
+        return await handle_run_command(command_data, args, background_tasks)
     elif subcommand == "status":
         return await handle_status_command(command_data)
     elif subcommand == "help":
@@ -145,15 +160,44 @@ async def handle_cline_command(command_data: SlackCommandSchema) -> JSONResponse
         })
 
 
-async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str) -> JSONResponse:
+async def start_run_background(start_command: StartRunCommand):
+    """
+    Background worker to start a Cline run.
+    
+    This runs asynchronously after returning immediate acknowledgement to Slack.
+    Posts updates via Slack's response_url.
+    
+    Args:
+        start_command: Command with run parameters
+    """
+    try:
+        orchestrator = get_orchestrator_service()
+        
+        async for session in get_session():
+            try:
+                run = await orchestrator.start_run(start_command, session)
+                logger.info(f"Background task successfully started run {run.id}")
+                break  # Exit after successful start
+            except Exception as e:
+                logger.error(f"Background task failed to start run: {e}", exc_info=True)
+                # TODO: Post error to response_url if available
+                break
+                
+    except Exception as e:
+        logger.error(f"Critical error in background task: {e}", exc_info=True)
+
+
+async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str, background_tasks: BackgroundTasks) -> JSONResponse:
     """
     Handle `/cline run <task>` command.
     
-    Creates a StartRunCommand and delegates to the Run Orchestrator.
+    Returns immediate acknowledgement to Slack (< 3 seconds), then queues
+    the actual work as a background task.
     
     Args:
         command_data: Validated command data from Slack
         task_prompt: Task description provided by user
+        background_tasks: FastAPI background tasks
         
     Returns:
         JSONResponse: Immediate response to Slack
@@ -167,7 +211,7 @@ async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str)
     try:
         # Create internal command for orchestrator
         start_command = StartRunCommand(
-            tenant_id=settings.default_tenant_id,  # TODO: Extract from team_id when multi-tenant
+            tenant_id=settings.default_tenant_id,
             channel_id=command_data.channel_id,
             user_id=command_data.user_id,
             task_prompt=task_prompt,
@@ -179,53 +223,33 @@ async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str)
             "run_command_created",
             channel_id=command_data.channel_id,
             user_id=command_data.user_id,
-            task_prompt=task_prompt[:100]  # Truncate for logging
+            task_prompt=task_prompt[:100]
         )
         
-        # Send to Run Orchestrator
-        orchestrator = get_orchestrator_service()
+        # Queue background task (non-blocking)
+        background_tasks.add_task(start_run_background, start_command)
         
-        async for session in get_session():
-            try:
-                run = await orchestrator.start_run(start_command, session)
-                
-                # Return immediate response with run_id for dashboard SSE connection
-                # The orchestrator will post progress updates to Slack
-                return JSONResponse(content={
-                    "response_type": "in_channel",
-                    "run_id": str(run.id),  # Include run_id for dashboard streaming
-                    "text": f"🚀 Starting Cline run: `{task_prompt}`",
-                    "blocks": [
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": f"🚀 Starting Cline run: `{task_prompt}`"
-                            }
-                        },
-                        {
-                            "type": "section",
-                            "text": {
-                                "type": "mrkdwn", 
-                                "text": "⏳ Setting up execution environment..."
-                            }
-                        }
-                    ]
-                })
-                
-            except ValueError as e:
-                # Project not found error
-                return JSONResponse(content={
-                    "response_type": "ephemeral",
-                    "text": f"❌ Configuration error: {str(e)}\nPlease contact your admin to set up this channel."
-                })
-            except Exception as e:
-                # Other errors
-                logger.error(f"Failed to start run: {e}")
-                return JSONResponse(content={
-                    "response_type": "ephemeral",
-                    "text": "❌ Failed to start run. Please try again or contact support."
-                })
+        # Return immediate acknowledgement (under 3 seconds!)
+        return JSONResponse(content={
+            "response_type": "in_channel",
+            "text": f"🚀 Starting Cline run: `{task_prompt}`",
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🚀 Starting Cline run: `{task_prompt}`"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn", 
+                        "text": "⏳ Setting up execution environment..."
+                    }
+                }
+            ]
+        })
         
     except Exception as e:
         logger.error(f"Error creating run command: {e}", exc_info=True)
@@ -329,11 +353,83 @@ async def handle_block_actions(interactivity_data: SlackInteractivitySchema, pay
     action = actions[0]  # Handle first action
     action_id = action.get("action_id")
     
-    if action_id == "cancel_run":
+    if action_id == "approve_plan":
+        return await handle_approve_plan_action(interactivity_data, action)
+    elif action_id == "cancel_run":
         return await handle_cancel_run_action(interactivity_data, action)
     else:
         logger.warning(f"Unhandled action_id: {action_id}")
         return JSONResponse(content={"text": f"Action `{action_id}` not supported"})
+
+
+async def handle_approve_plan_action(interactivity_data: SlackInteractivitySchema, action: Dict[str, Any]) -> JSONResponse:
+    """
+    Handle approve plan button click.
+    
+    Args:
+        interactivity_data: Validated interactivity payload
+        action: Action details from the button click
+        
+    Returns:
+        JSONResponse: Response to update the message
+    """
+    run_id = action.get("value", "")
+    user_id = interactivity_data.user.get("id", "")
+    
+    try:
+        log_slack_event(
+            "approve_plan_requested",
+            user_id=user_id,
+            run_id=run_id
+        )
+        
+        # Send to Run Orchestrator
+        orchestrator = get_orchestrator_service()
+        
+        async for session in get_session():
+            try:
+                success = await orchestrator.approve_run(run_id, session)
+                
+                if success:
+                    # Update the message to show approval + execution started
+                    return JSONResponse(content={
+                        "replace_original": True,
+                        "text": "✅ Plan approved - Executing...",
+                        "blocks": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "✅ Plan approved by user"
+                                }
+                            },
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": "🚀 Executing plan autonomously..."
+                                }
+                            }
+                        ]
+                    })
+                else:
+                    return JSONResponse(content={
+                        "text": "❌ Failed to approve plan"
+                    })
+            except Exception as e:
+                logger.error(f"Error approving plan: {e}")
+                return JSONResponse(content={
+                    "text": "❌ Error occurred while approving plan"
+                })
+
+        # Fallback response
+        return JSONResponse(content={
+            "text": "❌ Failed to approve plan"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error approving plan: {e}", exc_info=True)
+        return JSONResponse(content={"text": "❌ Failed to approve plan"})
 
 
 async def handle_cancel_run_action(interactivity_data: SlackInteractivitySchema, action: Dict[str, Any]) -> JSONResponse:

@@ -26,7 +26,9 @@ from schemas.dashboard import (
     RunResponseSchema,
     ApiKeyConfigSchema,
     TestSlackCommandSchema,
-    TestSlackResponseSchema
+    TestSlackResponseSchema,
+    RunRespondSchema,
+    RunRespondResponseSchema
 )
 from modules.dashboard.service import get_dashboard_service, DashboardService
 from utils.logging import get_logger
@@ -168,6 +170,92 @@ async def list_runs(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve runs"
+        )
+
+
+@router.post("/runs/{run_id}/respond", response_model=RunRespondResponseSchema)
+async def respond_to_run(
+    run_id: str,
+    request: RunRespondSchema,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Send an approval or denial response to a running Cline task.
+    
+    Use this when Cline is waiting for user approval to execute a command
+    or perform an action. Only valid for runs in 'running' status.
+    
+    Actions:
+    - approve: Allow Cline to proceed with the proposed action
+    - deny: Reject the proposed action
+    """
+    try:
+        # Get run details to find the instance
+        run = await service.get_run_details(run_id, session)
+        if not run:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Run {run_id} not found"
+            )
+        
+        # Validate run is still running
+        if run.status.value not in ('RUNNING',):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot respond to run with status: {run.status.value}"
+            )
+        
+        # Get instance info from orchestrator
+        from modules.orchestrator.service import get_orchestrator_service
+        orchestrator = get_orchestrator_service()
+        metadata = orchestrator._run_metadata.get(run_id)
+        
+        if not metadata:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Run metadata not found - task may have completed"
+            )
+        
+        # Validate action
+        if request.action not in ('approve', 'deny'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid action: {request.action}. Must be 'approve' or 'deny'"
+            )
+        
+        # Send response via CLI client
+        from modules.execution_engine.cli_client import get_cli_client
+        cli_client = get_cli_client()
+        
+        success = await cli_client.send_response(
+            instance_address=metadata["instance_address"],
+            workspace_path=metadata["workspace_path"],
+            action=request.action,
+            message=request.message
+        )
+        
+        if success:
+            logger.info(f"Sent {request.action} response to run {run_id}")
+            return RunRespondResponseSchema(
+                success=True,
+                message=f"Response '{request.action}' sent successfully",
+                action=request.action,
+                run_id=run_id
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to send response to Cline"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to respond to run {run_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send response: {str(e)}"
         )
 
 

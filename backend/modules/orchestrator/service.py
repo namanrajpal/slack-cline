@@ -71,13 +71,13 @@ class RunOrchestratorService:
         if not project:
             raise ValueError(f"No repository configured for channel {command.channel_id}")
         
-        # Create run in database
+        # Create run in database - starts in PLANNING status
         run = RunModel(
             tenant_id=command.tenant_id,
             project_id=project.id,
             task_prompt=command.task_prompt,
             slack_channel_id=command.channel_id,
-            status=RunStatus.QUEUED
+            status=RunStatus.QUEUED  # Starts in PLAN mode
         )
         
         session.add(run)
@@ -313,7 +313,7 @@ class RunOrchestratorService:
             run_id,
             cline_run_id=event.cline_run_id,
             cli_event_type=event.event_type,  # Renamed to avoid conflict with positional event_type
-            message=event.message
+            message=event.message[:100] if event.message else ""
         )
         
         # Update database
@@ -326,6 +326,20 @@ class RunOrchestratorService:
                 
                 if not run:
                     logger.warning(f"Run {run_id} not found for event processing")
+                    return
+                
+                # Handle plan completion event
+                if event.event_type == "plan_complete":
+                    logger.info(f"Plan complete for run {run_id}, posting to Slack")
+                    # Update run status and summary
+                    run.status = RunStatus.RUNNING  # Still running, waiting for approval
+                    run.summary = event.message
+                    await session.commit()
+                    
+                    # Post plan to Slack with approval buttons
+                    await self._post_plan_to_slack(run, event.message)
+                    
+                    # DON'T clean up yet - wait for approval
                     return
                 
                 # Update run based on event type
@@ -361,7 +375,11 @@ class RunOrchestratorService:
         run: RunModel, 
         response_url: str
     ) -> None:
-        """Post initial status message to Slack."""
+        """
+        Post initial status message to Slack and capture message timestamp.
+        
+        The message timestamp is needed to update the message later with the plan.
+        """
         try:
             blocks = self.slack_client.create_run_status_blocks(
                 task_prompt=run.task_prompt,
@@ -370,12 +388,31 @@ class RunOrchestratorService:
                 run_id=str(run.id)
             )
             
-            await self.slack_client.post_delayed_response(
-                response_url=response_url,
+            # Use Slack Web API to post message (not response_url)
+            # This gives us back a message timestamp we can use to update later
+            response = await self.slack_client.post_message(
+                channel=run.slack_channel_id,
                 text=f"🚀 Starting Cline run: {run.task_prompt}",
-                blocks=blocks,
-                replace_original=True
+                blocks=blocks
             )
+            
+            # Capture and store the message timestamp for later updates
+            if response and response.get("ok"):
+                message_ts = response.get("ts")
+                if message_ts:
+                    # Update run with thread timestamp
+                    async for session in get_session():
+                        try:
+                            result = await session.execute(
+                                select(RunModel).where(RunModel.id == run.id)
+                            )
+                            run_obj = result.scalar_one_or_none()
+                            if run_obj:
+                                run_obj.slack_thread_ts = message_ts
+                                await session.commit()
+                                logger.info(f"Stored Slack thread ts: {message_ts}")
+                        except Exception as db_error:
+                            logger.error(f"Failed to store slack_thread_ts: {db_error}")
             
         except Exception as e:
             logger.error(f"Failed to post initial Slack message: {e}")
@@ -452,6 +489,282 @@ class RunOrchestratorService:
             
         except Exception as e:
             logger.error(f"Failed to post cancellation update: {e}")
+    
+    def _clean_plan_output(self, text: str) -> str:
+        """
+        Clean plan output by removing CLI noise and debug messages.
+        
+        Filters out:
+        - Checkpoint messages
+        - API request completed messages
+        - "Cline is..." status messages
+        - "Using instance:" messages
+        - Progress sections (shown inline during planning)
+        - User's original prompt echo
+        
+        Args:
+            text: Raw output from Cline CLI
+            
+        Returns:
+            str: Cleaned plan content only
+        """
+        lines = text.split('\n')
+        cleaned_lines = []
+        skip_progress = False
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Skip noise patterns
+            if any([
+                'Checkpoint created' in stripped,
+                'API request completed' in stripped,
+                stripped.startswith('Using instance:'),
+                stripped.startswith('Cline is '),
+                stripped.startswith('Following task conversation'),
+                stripped.startswith('--- Conversation history'),
+                '↑' in stripped and '↓' in stripped,  # Token usage indicators
+            ]):
+                continue
+            
+            # Skip progress sections (they're duplicated from streaming)
+            if stripped == 'Progress':
+                skip_progress = True
+                continue
+            elif skip_progress:
+                # Skip until we hit a non-checkbox line that's not indented
+                if stripped.startswith('- [') or stripped.startswith('['):
+                    continue
+                else:
+                    skip_progress = False
+            
+            # Skip user's original prompt (appears at start)
+            if stripped.startswith('`') and stripped.endswith('`') and len(stripped) < 200:
+                # Likely the prompt
+                continue
+            
+            # Keep everything else
+            if stripped:
+                cleaned_lines.append(line.rstrip())
+        
+        return '\n'.join(cleaned_lines)
+    
+    def _convert_markdown_to_slack(self, text: str) -> str:
+        """
+        Convert markdown to Slack's mrkdwn format.
+        
+        Args:
+            text: Markdown text from Cline
+            
+        Returns:
+            str: Slack-formatted mrkdwn text
+        """
+        # Convert headers to bold
+        lines = text.split('\n')
+        converted_lines = []
+        
+        for line in lines:
+            # Convert markdown headers to bold
+            if line.startswith('#### '):
+                # #### Header -> *Header*
+                converted_lines.append('*' + line[5:] + '*')
+            elif line.startswith('### '):
+                # ### Header -> *Header*
+                converted_lines.append('*' + line[4:] + '*')
+            elif line.startswith('## '):
+                # ## Header -> *Header*
+                converted_lines.append('*' + line[3:] + '*')
+            elif line.startswith('# '):
+                # # Header -> *Header*
+                converted_lines.append('*' + line[2:] + '*')
+            else:
+                # Keep other lines as-is (numbered lists, bullets, etc. work in Slack)
+                converted_lines.append(line)
+        
+        return '\n'.join(converted_lines)
+    
+    async def _post_plan_to_slack(self, run: RunModel, plan_summary: str) -> None:
+        """
+        Post the completed plan to Slack as a thread reply with approval buttons.
+        
+        Posts as a threaded reply to keep the main message clean and the plan
+        in a conversational context.
+        
+        Args:
+            run: Run model
+            plan_summary: The plan text from Cline (raw CLI output)
+        """
+        try:
+            if not run.slack_thread_ts:
+                logger.warning(f"No Slack thread for run {run.id}, cannot post plan")
+                return
+            
+            # Step 1: Clean the plan (remove CLI noise)
+            cleaned_plan = self._clean_plan_output(plan_summary)
+            logger.info(f"Cleaned plan: {len(plan_summary)} -> {len(cleaned_plan)} chars")
+            
+            # Step 2: Convert markdown to Slack format
+            slack_formatted_plan = self._convert_markdown_to_slack(cleaned_plan)
+            
+            # Step 3: Handle long plans by splitting into multiple sections if needed
+            # Slack has a 3000 char limit per text block
+            max_section_length = 2900
+            
+            if len(slack_formatted_plan) <= max_section_length:
+                # Single message - fits in one block
+                blocks = [
+                    {
+                        "type": "header",
+                        "text": {"type": "plain_text", "text": "📋 Cline's Plan"}
+                    },
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": slack_formatted_plan}
+                    },
+                    {
+                        "type": "actions",
+                        "elements": [
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "✅ Approve & Execute"},
+                                "style": "primary",
+                                "value": str(run.id),
+                                "action_id": "approve_plan"
+                            },
+                            {
+                                "type": "button",
+                                "text": {"type": "plain_text", "text": "❌ Cancel"},
+                                "style": "danger",
+                                "value": str(run.id),
+                                "action_id": "cancel_run"
+                            }
+                        ]
+                    }
+                ]
+            else:
+                # Long plan - split into multiple sections
+                # Slack allows max 50 blocks per message, we'll split the text
+                parts = []
+                current_part = []
+                current_length = 0
+                
+                for line in slack_formatted_plan.split('\n'):
+                    line_len = len(line) + 1  # +1 for newline
+                    if current_length + line_len > max_section_length and current_part:
+                        # Save current part and start new one
+                        parts.append('\n'.join(current_part))
+                        current_part = [line]
+                        current_length = line_len
+                    else:
+                        current_part.append(line)
+                        current_length += line_len
+                
+                # Add final part
+                if current_part:
+                    parts.append('\n'.join(current_part))
+                
+                # Create blocks with multiple sections
+                blocks = [
+                    {
+                        "type": "header",
+                        "text": {"type": "plain_text", "text": f"📋 Cline's Plan (Part 1/{len(parts)})"}
+                    }
+                ]
+                
+                # Add each part as a section
+                for i, part in enumerate(parts):
+                    if i > 0:
+                        # Add divider between parts
+                        blocks.append({"type": "divider"})
+                        blocks.append({
+                            "type": "context",
+                            "elements": [{"type": "mrkdwn", "text": f"_Part {i+1}/{len(parts)}_"}]
+                        })
+                    blocks.append({
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": part}
+                    })
+                
+                # Add buttons at the end
+                blocks.append({
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "✅ Approve & Execute"},
+                            "style": "primary",
+                            "value": str(run.id),
+                            "action_id": "approve_plan"
+                        },
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "❌ Cancel"},
+                            "style": "danger",
+                            "value": str(run.id),
+                            "action_id": "cancel_run"
+                        }
+                    ]
+                })
+            
+            # Post as thread reply (not update) to keep main message clean
+            await self.slack_client.post_message(
+                channel=run.slack_channel_id,
+                thread_ts=run.slack_thread_ts,  # This makes it a thread reply
+                text=f"📋 Plan ready for: {run.task_prompt}",
+                blocks=blocks
+            )
+            
+            logger.info(f"Posted plan to Slack thread for run {run.id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to post plan to Slack: {e}")
+    
+    async def approve_run(self, run_id: str, session: AsyncSession) -> bool:
+        """
+        Approve a plan and start autonomous execution.
+        
+        Args:
+            run_id: Run ID to approve
+            session: Database session
+            
+        Returns:
+            bool: True if approval was successful
+        """
+        result = await session.execute(
+            select(RunModel).where(RunModel.id == UUID(run_id))
+        )
+        run = result.scalar_one_or_none()
+        
+        if not run:
+            logger.warning(f"Run {run_id} not found for approval")
+            return False
+        
+        if not run.is_active:
+            logger.warning(f"Run {run_id} is not active, cannot approve")
+            return False
+        
+        metadata = self._run_metadata.get(run_id)
+        if not metadata:
+            logger.error(f"No metadata found for run {run_id}")
+            return False
+        
+        log_run_event("plan_approved", run_id, cline_run_id=run.cline_run_id)
+        
+        # Approve via CLI (switches to ACT mode + YOLO)
+        success = await self.cli_client.approve_plan(
+            metadata["instance_address"],
+            metadata["workspace_path"],
+            "Proceed with the plan"
+        )
+        
+        if success:
+            # Restart event streaming (it stopped after plan_complete)
+            await self._start_event_stream(run)
+            logger.info(f"Plan approved and execution started for run {run_id}")
+        else:
+            logger.error(f"Failed to approve plan for run {run_id}")
+        
+        return success
 
 
 # Global service instance

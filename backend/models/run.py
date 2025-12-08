@@ -19,7 +19,9 @@ from database import Base
 class RunStatus(enum.Enum):
     """Enumeration of possible run statuses."""
     QUEUED = "queued"
-    RUNNING = "running"
+    PLANNING = "planning"  # Cline is creating a plan
+    AWAITING_APPROVAL = "awaiting_approval"  # Plan is ready, waiting for user approval
+    RUNNING = "running"  # Approved, executing the plan
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"

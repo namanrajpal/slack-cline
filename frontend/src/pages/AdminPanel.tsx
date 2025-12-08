@@ -7,7 +7,7 @@ interface StreamEvent {
   message: string;
   timestamp?: string;
   status?: string;
-  data?: Record<string, string>;
+  data?: Record<string, string | boolean>;
 }
 
 export default function AdminPanel() {
@@ -26,6 +26,9 @@ export default function AdminPanel() {
   const [result, setResult] = useState<TestSlackResponse | null>(null);
   const [events, setEvents] = useState<StreamEvent[]>([]);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] = useState(false);
+  const [approvalMessage, setApprovalMessage] = useState<string | null>(null);
+  const [responding, setResponding] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
 
@@ -76,9 +79,16 @@ export default function AdminPanel() {
         const data: StreamEvent = JSON.parse(event.data);
         setEvents(prev => [...prev, data]);
         
+        // Check for approval request
+        if (data.event_type === 'approval_required' || data.data?.requires_approval) {
+          setPendingApproval(true);
+          setApprovalMessage(data.message);
+        }
+        
         // Stop streaming on completion
         if (data.event_type === 'complete' || data.event_type === 'error') {
           setStreaming(false);
+          setPendingApproval(false);
           eventSource.close();
         }
       } catch (err) {
@@ -102,6 +112,35 @@ export default function AdminPanel() {
       eventSourceRef.current = null;
     }
     setStreaming(false);
+    setPendingApproval(false);
+  };
+  
+  const handleRespond = async (action: 'approve' | 'deny') => {
+    if (!currentRunId) return;
+    
+    setResponding(true);
+    try {
+      const response = await apiClient.respondToRun(currentRunId, action);
+      if (response.success) {
+        setPendingApproval(false);
+        setApprovalMessage(null);
+        // Add event to show response was sent
+        setEvents(prev => [...prev, {
+          event_type: 'info',
+          message: `Sent ${action} response to Cline`,
+          timestamp: new Date().toISOString()
+        }]);
+      }
+    } catch (err) {
+      console.error('Failed to send response:', err);
+      setEvents(prev => [...prev, {
+        event_type: 'error',
+        message: `Failed to send ${action} response: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        timestamp: new Date().toISOString()
+      }]);
+    } finally {
+      setResponding(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -119,6 +158,8 @@ export default function AdminPanel() {
       const runId = response.response_payload?.run_id;
       if (runId && response.success) {
         // Start streaming events for this run
+        setPendingApproval(false);
+        setApprovalMessage(null);
         startEventStream(runId);
       }
     } catch (err) {
@@ -316,6 +357,12 @@ export default function AdminPanel() {
                   Streaming...
                 </span>
               )}
+              {pendingApproval && (
+                <span className="ml-2 flex items-center text-orange-400 text-sm">
+                  <span className="animate-pulse mr-1">⏳</span>
+                  Waiting for approval
+                </span>
+              )}
             </div>
             {streaming && (
               <button
@@ -326,6 +373,40 @@ export default function AdminPanel() {
               </button>
             )}
           </div>
+          
+          {/* Approval Request Banner */}
+          {pendingApproval && currentRunId && (
+            <div className="px-4 py-3 bg-orange-900 border-b border-orange-700">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="text-orange-200 font-medium">
+                    🔔 Cline needs your approval
+                  </p>
+                  {approvalMessage && (
+                    <p className="text-orange-300 text-sm mt-1 font-mono truncate">
+                      {approvalMessage}
+                    </p>
+                  )}
+                </div>
+                <div className="flex space-x-2 ml-4">
+                  <button
+                    onClick={() => handleRespond('approve')}
+                    disabled={responding}
+                    className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-md font-medium flex items-center"
+                  >
+                    {responding ? '...' : '✅ Approve'}
+                  </button>
+                  <button
+                    onClick={() => handleRespond('deny')}
+                    disabled={responding}
+                    className="px-4 py-2 text-sm bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-md font-medium flex items-center"
+                  >
+                    {responding ? '...' : '❌ Deny'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="p-4 font-mono text-sm max-h-96 overflow-y-auto bg-gray-950">
             {events.map((event, index) => (
               <div 
@@ -335,6 +416,8 @@ export default function AdminPanel() {
                   event.event_type === 'complete' ? 'text-green-400' :
                   event.event_type === 'connected' ? 'text-blue-400' :
                   event.event_type === 'status' ? 'text-yellow-400' :
+                  event.event_type === 'approval_required' ? 'text-orange-400 bg-orange-900/30 px-2 rounded' :
+                  event.event_type === 'info' ? 'text-cyan-400' :
                   'text-gray-300'
                 }`}
               >
@@ -345,6 +428,8 @@ export default function AdminPanel() {
                   event.event_type === 'step' ? 'text-cyan-400' :
                   event.event_type === 'complete' ? 'text-green-400' :
                   event.event_type === 'error' ? 'text-red-400' :
+                  event.event_type === 'approval_required' ? 'text-orange-400' :
+                  event.event_type === 'info' ? 'text-cyan-400' :
                   'text-gray-500'
                 }`}>
                   [{event.event_type}]

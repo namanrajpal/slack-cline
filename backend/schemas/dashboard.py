@@ -91,3 +91,19 @@ class TestSlackResponseSchema(BaseModel):
     run_id: Optional[str] = None
     request_payload: Optional[dict] = None
     response_payload: Optional[dict] = None
+
+
+class RunRespondSchema(BaseModel):
+    """Schema for sending approval/denial response to a running task."""
+    
+    action: str = Field(..., description="Response action: 'approve' or 'deny'")
+    message: Optional[str] = Field(None, description="Optional message to send with response")
+
+
+class RunRespondResponseSchema(BaseModel):
+    """Schema for respond endpoint response."""
+    
+    success: bool
+    message: str
+    action: str
+    run_id: str
