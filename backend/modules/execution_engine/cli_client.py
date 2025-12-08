@@ -692,6 +692,59 @@ class ClineCliClient:
             logger.error(f"Error approving plan: {e}")
             return False
 
+    async def send_message(
+        self,
+        instance_address: str,
+        workspace_path: str,
+        message: str
+    ) -> bool:
+        """
+        Send a message to a running Cline task to continue the conversation.
+        
+        This is used for interactive conversations where the user provides
+        additional input, clarifications, or answers to Cline's questions.
+        
+        Args:
+            instance_address: Cline instance address
+            workspace_path: Workspace directory
+            message: Message text from the user
+            
+        Returns:
+            bool: True if message was sent successfully
+        """
+        cmd = [
+            "cline", "task", "send",
+            "--address", instance_address,
+            message
+        ]
+        
+        logger.info(f"Sending user message to instance {instance_address}: {message[:100]}...")
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=workspace_path
+            )
+            
+            stdout, stderr = await process.communicate()
+            
+            stdout_text = stdout.decode('utf-8') if stdout else ""
+            stderr_text = stderr.decode('utf-8') if stderr else ""
+            
+            if process.returncode == 0:
+                logger.info("User message sent successfully")
+                return True
+            else:
+                logger.error(f"Failed to send message: {stderr_text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
+            return False
+
     async def send_response(
         self,
         instance_address: str,

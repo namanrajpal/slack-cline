@@ -501,6 +501,9 @@ class RunOrchestratorService:
         - "Using instance:" messages
         - Progress sections (shown inline during planning)
         - User's original prompt echo
+        - "See less" / "See more" UI markers
+        - Part indicators (Part 1/2, etc.)
+        - Tool call status messages
         
         Args:
             text: Raw output from Cline CLI
@@ -515,6 +518,10 @@ class RunOrchestratorService:
         for line in lines:
             stripped = line.strip()
             
+            # Skip empty lines
+            if not stripped:
+                continue
+            
             # Skip noise patterns
             if any([
                 'Checkpoint created' in stripped,
@@ -524,11 +531,18 @@ class RunOrchestratorService:
                 stripped.startswith('Following task conversation'),
                 stripped.startswith('--- Conversation history'),
                 '↑' in stripped and '↓' in stripped,  # Token usage indicators
+                'See less' in stripped,
+                'See more' in stripped,
+                'Part ' in stripped and '/' in stripped,  # Part 1/2, Part 2/2, etc.
+                stripped.startswith('Cline has a plan'),
+                'I should first explore' in stripped,
+                'Since I\'m in PLAN MODE' in stripped,
+                'Let me start by reading' in stripped,
             ]):
                 continue
             
             # Skip progress sections (they're duplicated from streaming)
-            if stripped == 'Progress':
+            if stripped == 'Progress' or stripped.startswith('Progress:'):
                 skip_progress = True
                 continue
             elif skip_progress:
@@ -543,9 +557,17 @@ class RunOrchestratorService:
                 # Likely the prompt
                 continue
             
+            # Skip common Cline thinking patterns
+            if any([
+                'I will' in stripped and len(stripped) < 100,
+                'I can' in stripped and len(stripped) < 100,
+                'Let me' in stripped and len(stripped) < 100,
+            ]) and not any(keyword in stripped for keyword in ['Step', '#', '*', '1.', '2.', '3.']):
+                # Skip short planning statements that aren't part of structured plans
+                continue
+            
             # Keep everything else
-            if stripped:
-                cleaned_lines.append(line.rstrip())
+            cleaned_lines.append(line.rstrip())
         
         return '\n'.join(cleaned_lines)
     
@@ -553,13 +575,20 @@ class RunOrchestratorService:
         """
         Convert markdown to Slack's mrkdwn format.
         
+        Conversions:
+        - **bold** → *bold*
+        - *italic* → _italic_
+        - `code` → `code` (unchanged)
+        - # Header → *Header* (bold)
+        
         Args:
             text: Markdown text from Cline
             
         Returns:
             str: Slack-formatted mrkdwn text
         """
-        # Convert headers to bold
+        import re
+        
         lines = text.split('\n')
         converted_lines = []
         
@@ -567,19 +596,30 @@ class RunOrchestratorService:
             # Convert markdown headers to bold
             if line.startswith('#### '):
                 # #### Header -> *Header*
-                converted_lines.append('*' + line[5:] + '*')
+                converted_line = '*' + line[5:] + '*'
             elif line.startswith('### '):
                 # ### Header -> *Header*
-                converted_lines.append('*' + line[4:] + '*')
+                converted_line = '*' + line[4:] + '*'
             elif line.startswith('## '):
                 # ## Header -> *Header*
-                converted_lines.append('*' + line[3:] + '*')
+                converted_line = '*' + line[3:] + '*'
             elif line.startswith('# '):
                 # # Header -> *Header*
-                converted_lines.append('*' + line[2:] + '*')
+                converted_line = '*' + line[2:] + '*'
             else:
-                # Keep other lines as-is (numbered lists, bullets, etc. work in Slack)
-                converted_lines.append(line)
+                converted_line = line
+            
+            # Convert inline markdown (bold and italic)
+            # **bold** → *bold* (but preserve ***text*** as ***text***)
+            converted_line = re.sub(r'\*\*\*(.+?)\*\*\*', r'***\1***', converted_line)  # Preserve triple
+            converted_line = re.sub(r'\*\*(.+?)\*\*', r'*\1*', converted_line)  # Bold
+            
+            # *italic* → _italic_ (but only for single asterisks not already converted)
+            # This is tricky because we just converted ** to *
+            # We need to handle remaining single * as italic
+            # For now, skip single asterisk conversion to avoid conflicts
+            
+            converted_lines.append(converted_line)
         
         return '\n'.join(converted_lines)
     

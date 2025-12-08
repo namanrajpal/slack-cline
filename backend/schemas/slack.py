@@ -37,11 +37,13 @@ class SlackInteractivitySchema(BaseModel):
     
     This validates the JSON payload sent when users interact with buttons,
     menus, or other interactive elements in Slack messages.
+    
+    Note: action_ts is only present in message actions, not block actions (button clicks).
     """
     
     type: str = Field(..., description="Type of interaction")
     token: str = Field(..., description="Slack verification token")
-    action_ts: str = Field(..., description="Timestamp of the action")
+    action_ts: Optional[str] = Field(None, description="Timestamp of the action (message actions only)")
     team: dict = Field(..., description="Team information")
     user: dict = Field(..., description="User information")
     channel: dict = Field(..., description="Channel information")
