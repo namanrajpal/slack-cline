@@ -13,7 +13,7 @@ import time
 from typing import List, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -344,7 +344,8 @@ async def update_api_config(
 
 @router.post("/test/slack-command", response_model=TestSlackResponseSchema)
 async def test_slack_command(
-    request: TestSlackCommandSchema
+    request: TestSlackCommandSchema,
+    background_tasks: BackgroundTasks
 ):
     """
     Simulate a Slack slash command for testing.
@@ -375,7 +376,7 @@ async def test_slack_command(
         )
         
         # Call the Slack handler directly (same execution path as real Slack)
-        response = await handle_cline_command(command_data)
+        response = await handle_cline_command(command_data, background_tasks)
         
         # Extract response data
         response_body = None
@@ -400,6 +401,336 @@ async def test_slack_command(
             request_payload=None,
             response_payload=None
         )
+
+
+# ============================================================================
+# AGENT RULES & WORKFLOWS ENDPOINTS
+# ============================================================================
+
+@router.get("/projects/{project_id}/rules")
+async def get_project_rules(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Get agent rules (.clinerules) for a project.
+    
+    Returns the content of the .clinerules file from the project's workspace.
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        content = await service.get_project_rules(project)
+        return {"content": content}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get project rules: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve rules"
+        )
+
+
+@router.put("/projects/{project_id}/rules")
+async def update_project_rules(
+    project_id: str,
+    content: dict,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Update agent rules (.clinerules) for a project.
+    
+    Writes the provided content to the .clinerules file in the workspace.
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        await service.update_project_rules(project, content.get("content", ""))
+        return {"status": "saved"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update project rules: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save rules"
+        )
+
+
+@router.delete("/projects/{project_id}/rules")
+async def delete_project_rules(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Delete agent rules (.clinerules) for a project.
+    
+    Removes the .clinerules file from the workspace.
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        await service.delete_project_rules(project)
+        return {"status": "deleted"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete project rules: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete rules"
+        )
+
+
+@router.get("/projects/{project_id}/workflows")
+async def list_workflows(
+    project_id: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    List all workflows for a project.
+    
+    Returns list of workflow names from .clineworkflows/ directory.
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        workflows = await service.list_workflows(project)
+        return {"workflows": workflows}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to list workflows: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve workflows"
+        )
+
+
+@router.get("/projects/{project_id}/workflows/{workflow_name}")
+async def get_workflow(
+    project_id: str,
+    workflow_name: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Get content of a specific workflow.
+    
+    Returns the markdown content from .clineworkflows/{workflow_name}.md
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        content = await service.get_workflow(project, workflow_name)
+        return {"content": content}
+        
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow '{workflow_name}' not found"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve workflow"
+        )
+
+
+@router.put("/projects/{project_id}/workflows/{workflow_name}")
+async def update_workflow(
+    project_id: str,
+    workflow_name: str,
+    content: dict,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Update a workflow's content.
+    
+    Writes content to .clineworkflows/{workflow_name}.md
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        await service.update_workflow(project, workflow_name, content.get("content", ""))
+        return {"status": "saved"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save workflow"
+        )
+
+
+@router.post("/projects/{project_id}/workflows")
+async def create_workflow(
+    project_id: str,
+    data: dict,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Create a new workflow.
+    
+    Creates a new file at .clineworkflows/{name}.md
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        workflow_name = data.get("name")
+        workflow_content = data.get("content", "# New Workflow\n\n")
+        
+        if not workflow_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workflow name is required"
+            )
+        
+        await service.create_workflow(project, workflow_name, workflow_content)
+        return {"status": "created", "name": workflow_name}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create workflow"
+        )
+
+
+@router.delete("/projects/{project_id}/workflows/{workflow_name}")
+async def delete_workflow(
+    project_id: str,
+    workflow_name: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """
+    Delete a workflow.
+    
+    Removes .clineworkflows/{workflow_name}.md file.
+    """
+    try:
+        project = await service.get_project(session, project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+        
+        await service.delete_workflow(project, workflow_name)
+        return {"status": "deleted"}
+        
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow '{workflow_name}' not found"
+        )
+    except Exception as e:
+        logger.error(f"Failed to delete workflow: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete workflow"
+        )
+
+
+@router.get("/github/repos")
+async def get_github_repos(
+    token: str = Header(None, alias="X-GitHub-Token")
+):
+    """
+    Get user's GitHub repositories using provided token.
+    Token is passed from frontend localStorage.
+    """
+    if not token:
+        return {"connected": False}
+    
+    try:
+        import httpx
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.github.com/user/repos",
+                headers={
+                    "Authorization": f"token {token}",
+                    "Accept": "application/vnd.github.v3+json"
+                },
+                params={"per_page": 100, "sort": "updated", "affiliation": "owner,collaborator"}
+            )
+            
+            if response.status_code != 200:
+                return {"connected": False}
+            
+            repos = response.json()
+            
+            return {
+                "connected": True,
+                "repos": [
+                    {
+                        "full_name": repo["full_name"],
+                        "clone_url": repo["clone_url"],
+                        "default_branch": repo.get("default_branch", "main"),
+                        "private": repo["private"]
+                    }
+                    for repo in repos
+                ]
+            }
+    except Exception as e:
+        logger.error(f"Failed to fetch GitHub repos: {e}")
+        return {"connected": False, "error": str(e)}
 
 
 @router.get("/health")

@@ -47,6 +47,7 @@ class ClineCliClient:
     
     async def start_run(
         self,
+        workspace_path: str,
         repo_url: str,
         ref_type: str,
         ref: str,
@@ -58,9 +59,12 @@ class ClineCliClient:
         metadata: Optional[Dict[str, str]] = None
     ) -> Dict[str, str]:
         """
-        Start a new Cline run using CLI commands.
+        Start a new Cline run using CLI commands in an existing workspace.
+        
+        The workspace should already exist and be up-to-date (use ensure_workspace first).
         
         Args:
+            workspace_path: Existing workspace directory path
             repo_url: Git repository URL
             ref_type: Reference type ("branch" or "commit")
             ref: Branch name or commit hash
@@ -80,9 +84,8 @@ class ClineCliClient:
         start_time = datetime.utcnow()
         
         try:
-            # 1. Clone repository to workspace
-            workspace_path = await self._clone_repository(repo_url, ref)
-            logger.info(f"Cloned {repo_url} to {workspace_path}")
+            # Workspace should already be ready (cloned/updated by ensure_workspace)
+            logger.info(f"Using existing workspace at {workspace_path}")
             
             # 2. Install dependencies (auto-detect project type)
             # await self._setup_workspace(workspace_path)
@@ -806,20 +809,77 @@ class ClineCliClient:
             logger.error(f"Error sending response: {e}")
             return False
 
-    async def _clone_repository(self, repo_url: str, ref: str) -> str:
+    async def ensure_workspace(
+        self,
+        workspace_path: str,
+        repo_url: str,
+        ref: str
+    ) -> str:
         """
-        Clone repository to a temporary workspace.
+        Ensure workspace exists and is up-to-date.
+        
+        If workspace doesn't exist, clones the repository.
+        If workspace exists, pulls latest changes.
         
         Args:
+            workspace_path: Target workspace directory path
             repo_url: Git repository URL
             ref: Branch or commit to checkout
             
         Returns:
-            str: Path to cloned workspace
+            str: Path to workspace
         """
-        # Create unique workspace directory
-        workspace_name = f"run-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
-        workspace_path = os.path.join(self.workspace_base, workspace_name)
+        if os.path.exists(workspace_path):
+            # Workspace exists - update it
+            logger.info(f"Workspace exists at {workspace_path}, updating...")
+            await self._update_workspace(workspace_path, ref)
+        else:
+            # First time - clone it
+            logger.info(f"Workspace doesn't exist, cloning to {workspace_path}...")
+            await self._clone_workspace(repo_url, ref, workspace_path)
+        
+        return workspace_path
+    
+    async def _update_workspace(self, workspace_path: str, ref: str):
+        """
+        Update existing workspace with latest changes.
+        
+        Args:
+            workspace_path: Workspace directory path
+            ref: Branch to checkout and pull
+        """
+        try:
+            # Reset any local changes
+            await self._run_git_command(workspace_path, ["reset", "--hard"])
+            logger.info("Reset local changes")
+            
+            # Clean untracked files
+            await self._run_git_command(workspace_path, ["clean", "-fd"])
+            logger.info("Cleaned untracked files")
+            
+            # Checkout correct branch
+            await self._run_git_command(workspace_path, ["checkout", ref])
+            logger.info(f"Checked out branch: {ref}")
+            
+            # Pull latest changes
+            await self._run_git_command(workspace_path, ["pull", "origin", ref])
+            logger.info("Pulled latest changes")
+            
+        except Exception as e:
+            logger.error(f"Error updating workspace: {e}")
+            raise RuntimeError(f"Failed to update workspace: {e}")
+    
+    async def _clone_workspace(self, repo_url: str, ref: str, workspace_path: str):
+        """
+        Clone repository to workspace (first time only).
+        
+        Args:
+            repo_url: Git repository URL
+            ref: Branch to checkout
+            workspace_path: Target directory path
+        """
+        # Create parent directory if needed
+        os.makedirs(os.path.dirname(workspace_path), exist_ok=True)
         
         # Clone repository
         cmd = ["git", "clone", "--depth", "1", "--branch", ref, repo_url, workspace_path]
@@ -836,7 +896,66 @@ class ClineCliClient:
             error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
             raise RuntimeError(f"Failed to clone repository: {error_msg}")
         
-        return workspace_path
+        logger.info(f"Cloned repository to {workspace_path}")
+    
+    async def configure_git_identity(
+        self,
+        workspace_path: str,
+        user_name: str,
+        user_email: str
+    ) -> None:
+        """
+        Configure git identity in workspace for commit attribution.
+        
+        This sets the git user.name and user.email for the workspace so that
+        any commits made by Cline are attributed to the actual user.
+        
+        Args:
+            workspace_path: Workspace directory
+            user_name: User's full name (e.g., "Alice Smith")
+            user_email: User's email (e.g., "alice@company.com")
+        """
+        try:
+            # Set git user.name
+            await self._run_git_command(
+                workspace_path,
+                ["config", "user.name", user_name]
+            )
+            logger.info(f"Set git user.name: {user_name}")
+            
+            # Set git user.email
+            await self._run_git_command(
+                workspace_path,
+                ["config", "user.email", user_email]
+            )
+            logger.info(f"Set git user.email: {user_email}")
+            
+        except Exception as e:
+            logger.error(f"Failed to configure git identity: {e}")
+            raise RuntimeError(f"Failed to configure git identity: {e}")
+    
+    async def _run_git_command(self, workspace_path: str, args: list):
+        """
+        Helper to run git commands in workspace.
+        
+        Args:
+            workspace_path: Workspace directory
+            args: Git command arguments (e.g., ["pull", "origin", "main"])
+        """
+        cmd = ["git"] + args
+        
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=workspace_path
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode != 0:
+            error_msg = stderr.decode('utf-8') if stderr else "Unknown error"
+            raise RuntimeError(f"Git command failed ({' '.join(args)}): {error_msg}")
     
     async def _create_instance(self, workspace_path: str) -> str:
         """

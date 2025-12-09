@@ -166,6 +166,8 @@ async def handle_cline_command(command_data: SlackCommandSchema, background_task
         return await handle_run_command(command_data, args, background_tasks)
     elif subcommand == "status":
         return await handle_status_command(command_data)
+    elif subcommand == "github":
+        return await handle_github_command(command_data)
     elif subcommand == "help":
         return await handle_help_command()
     else:
@@ -283,6 +285,61 @@ async def handle_status_command(command_data: SlackCommandSchema) -> JSONRespons
     })
 
 
+async def handle_github_command(command_data: SlackCommandSchema) -> JSONResponse:
+    """Handle `/cline github` command to connect GitHub account."""
+    # Build GitHub OAuth URL with user info
+    oauth_url = (
+        f"{settings.app_base_url}/auth/github/login"
+        f"?tenant_id={settings.default_tenant_id}"
+        f"&slack_user_id={command_data.user_id}"
+        f"&slack_username={command_data.user_name}"
+    )
+    
+    return JSONResponse(content={
+        "response_type": "ephemeral",
+        "text": "⚙️ Cline Settings",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "⚙️ Cline Settings"
+                }
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "*Connect your GitHub account*\n\nCommits made by Cline will be attributed to you. This requires GitHub authentication."
+                }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔗 Connect GitHub"
+                        },
+                        "style": "primary",
+                        "url": oauth_url
+                    }
+                ]
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "ℹ️ This will open a browser window to authorize with GitHub."
+                    }
+                ]
+            }
+        ]
+    })
+
+
 async def handle_help_command() -> JSONResponse:
     """Handle `/cline help` command."""
     return JSONResponse(content={
@@ -290,6 +347,7 @@ async def handle_help_command() -> JSONResponse:
         "text": """🤖 **Cline Commands**
 
 `/cline run <task>` - Start a new Cline run with the given task
+`/cline github` - Connect your GitHub account for commit attribution
 `/cline status` - Show active runs in this channel  
 `/cline help` - Show this help message
 

@@ -47,6 +47,71 @@ class ApiClient {
   }
 
   // ============================================================================
+  // AGENT RULES & WORKFLOWS
+  // ============================================================================
+
+  async getProjectRules(projectId: string): Promise<{ content: string }> {
+    const response = await api.get(`/api/projects/${projectId}/rules`);
+    return response.data;
+  }
+
+  async updateProjectRules(projectId: string, content: string): Promise<{ status: string }> {
+    const response = await api.put(`/api/projects/${projectId}/rules`, { content });
+    return response.data;
+  }
+
+  async deleteProjectRules(projectId: string): Promise<{ status: string }> {
+    const response = await api.delete(`/api/projects/${projectId}/rules`);
+    return response.data;
+  }
+
+  async listWorkflows(projectId: string): Promise<{ workflows: string[] }> {
+    const response = await api.get(`/api/projects/${projectId}/workflows`);
+    return response.data;
+  }
+
+  async getWorkflow(projectId: string, workflowName: string): Promise<{ content: string }> {
+    const response = await api.get(`/api/projects/${projectId}/workflows/${workflowName}`);
+    return response.data;
+  }
+
+  async updateWorkflow(projectId: string, workflowName: string, content: string): Promise<{ status: string }> {
+    const response = await api.put(`/api/projects/${projectId}/workflows/${workflowName}`, { content });
+    return response.data;
+  }
+
+  async createWorkflow(projectId: string, name: string, content: string): Promise<{ status: string; name: string }> {
+    const response = await api.post(`/api/projects/${projectId}/workflows`, { name, content });
+    return response.data;
+  }
+
+  async deleteWorkflow(projectId: string, workflowName: string): Promise<{ status: string }> {
+    const response = await api.delete(`/api/projects/${projectId}/workflows/${workflowName}`);
+    return response.data;
+  }
+
+  // ============================================================================
+  // GITHUB INTEGRATION
+  // ============================================================================
+
+  async getGitHubRepos(token: string): Promise<{
+    connected: boolean;
+    repos?: Array<{
+      full_name: string;
+      clone_url: string;
+      default_branch: string;
+      private: boolean;
+    }>;
+  }> {
+    const response = await api.get('/api/github/repos', {
+      headers: {
+        'X-GitHub-Token': token
+      }
+    });
+    return response.data;
+  }
+
+  // ============================================================================
   // RUN MONITORING
   // ============================================================================
 

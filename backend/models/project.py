@@ -39,6 +39,9 @@ class ProjectModel(Base):
     repo_url = Column(String(512), nullable=False)
     default_ref = Column(String(255), nullable=False, default="main")
     
+    # Workspace configuration (persistent workspace per project)
+    workspace_path = Column(String(512), nullable=True)  # e.g., /workspaces/project-{id}
+    
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -16,6 +16,7 @@ from config import settings
 from database import get_session
 from models.project import ProjectModel
 from models.run import RunModel, RunStatus
+from models.user_git_credential import UserGitCredentialModel
 from modules.execution_engine.cli_client import get_cli_client
 from schemas.slack import StartRunCommand, CancelRunCommand
 from schemas.run import RunEventSchema
@@ -77,6 +78,7 @@ class RunOrchestratorService:
             project_id=project.id,
             task_prompt=command.task_prompt,
             slack_channel_id=command.channel_id,
+            slack_user_id=command.user_id,  # Track who requested the task
             status=RunStatus.QUEUED  # Starts in PLAN mode
         )
         
@@ -87,8 +89,51 @@ class RunOrchestratorService:
         log_run_event("run_created", str(run.id), task_prompt=command.task_prompt[:100])
         
         try:
+            # Ensure project has workspace_path configured
+            if not project.workspace_path:
+                # Initialize workspace path for this project
+                workspace_name = f"project-{project.id}"
+                project.workspace_path = f"/home/app/workspaces/{workspace_name}"
+                await session.commit()
+                logger.info(f"Initialized workspace path for project {project.id}: {project.workspace_path}")
+            
+            # Ensure workspace exists and is up-to-date (git pull if exists, clone if not)
+            workspace_path = await self.cli_client.ensure_workspace(
+                workspace_path=project.workspace_path,
+                repo_url=project.repo_url,
+                ref=project.default_ref
+            )
+            logger.info(f"Workspace ready at {workspace_path}")
+            
+            # Look up user credentials and configure git identity if available
+            user_credential = await UserGitCredentialModel.find_by_slack_user(
+                session,
+                command.tenant_id,
+                command.user_id
+            )
+            
+            if user_credential and user_credential.is_connected():
+                # User has connected their GitHub account - configure git with their identity
+                logger.info(f"Configuring git identity for user {command.user_id}: {user_credential.git_user_name}")
+                
+                await self.cli_client.configure_git_identity(
+                    workspace_path=workspace_path,
+                    user_name=user_credential.git_user_name,
+                    user_email=user_credential.git_user_email
+                )
+                
+                # Link run to user credentials
+                run.user_git_credential_id = user_credential.id
+                await session.commit()
+                
+                logger.info(f"Git identity configured - commits will be attributed to {user_credential.git_user_name}")
+            else:
+                # User hasn't connected GitHub yet - log a warning
+                logger.warning(f"User {command.user_id} hasn't connected their GitHub account - commits will use default git identity")
+            
             # Start execution via Cline CLI with authentication
             result = await self.cli_client.start_run(
+                workspace_path=workspace_path,
                 repo_url=project.repo_url,
                 ref_type="branch",
                 ref=project.default_ref,

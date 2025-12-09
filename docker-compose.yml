@@ -8,6 +8,8 @@ services:
     ports:
       - "8000:8000"
       - "5678:5678"  # Python debugger port
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/slack_cline
       - DEBUG=true

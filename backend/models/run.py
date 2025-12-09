@@ -56,6 +56,10 @@ class RunModel(Base):
     # Slack integration metadata
     slack_channel_id = Column(String(255), nullable=False)
     slack_thread_ts = Column(String(255), nullable=True)  # Set after posting initial message
+    slack_user_id = Column(String(255), nullable=True)  # User who requested the task
+    
+    # User Git credentials (for commit attribution)
+    user_git_credential_id = Column(UUID(as_uuid=True), ForeignKey("user_git_credentials.id"), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

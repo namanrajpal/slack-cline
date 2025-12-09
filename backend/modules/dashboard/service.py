@@ -198,6 +198,211 @@ class DashboardService:
         )
         return result.scalar_one_or_none()
     
+    async def get_project(
+        self,
+        session: AsyncSession,
+        project_id: str
+    ) -> Optional[ProjectModel]:
+        """
+        Get a single project by ID.
+        
+        Args:
+            session: Database session
+            project_id: Project UUID
+            
+        Returns:
+            ProjectModel instance or None if not found
+        """
+        result = await session.execute(
+            select(ProjectModel).where(ProjectModel.id == UUID(project_id))
+        )
+        return result.scalar_one_or_none()
+    
+    async def get_project_rules(self, project: ProjectModel) -> str:
+        """
+        Get agent rules (.clinerules) content for a project.
+        
+        Args:
+            project: ProjectModel instance
+            
+        Returns:
+            str: Content of .clinerules file or empty string
+        """
+        if not project.workspace_path:
+            return ""
+        
+        rules_path = os.path.join(project.workspace_path, ".clinerules")
+        
+        if os.path.exists(rules_path):
+            with open(rules_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        
+        return ""
+    
+    async def update_project_rules(self, project: ProjectModel, content: str) -> None:
+        """
+        Update agent rules (.clinerules) for a project.
+        
+        Args:
+            project: ProjectModel instance
+            content: New rules content
+        """
+        if not project.workspace_path:
+            raise ValueError("Project workspace path not configured")
+        
+        # Ensure workspace directory exists
+        os.makedirs(project.workspace_path, exist_ok=True)
+        
+        rules_path = os.path.join(project.workspace_path, ".clinerules")
+        
+        with open(rules_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Updated rules for project {project.id}")
+    
+    async def delete_project_rules(self, project: ProjectModel) -> None:
+        """
+        Delete agent rules (.clinerules) for a project.
+        
+        Args:
+            project: ProjectModel instance
+        """
+        if not project.workspace_path:
+            return
+        
+        rules_path = os.path.join(project.workspace_path, ".clinerules")
+        
+        if os.path.exists(rules_path):
+            os.remove(rules_path)
+            logger.info(f"Deleted rules for project {project.id}")
+    
+    async def list_workflows(self, project: ProjectModel) -> List[str]:
+        """
+        List all workflows for a project.
+        
+        Args:
+            project: ProjectModel instance
+            
+        Returns:
+            List of workflow names (without .md extension)
+        """
+        if not project.workspace_path:
+            return []
+        
+        workflows_dir = os.path.join(project.workspace_path, ".clineworkflows")
+        
+        if not os.path.exists(workflows_dir):
+            return []
+        
+        workflows = []
+        for filename in os.listdir(workflows_dir):
+            if filename.endswith('.md'):
+                workflows.append(filename[:-3])  # Remove .md extension
+        
+        return sorted(workflows)
+    
+    async def get_workflow(self, project: ProjectModel, workflow_name: str) -> str:
+        """
+        Get content of a specific workflow.
+        
+        Args:
+            project: ProjectModel instance
+            workflow_name: Workflow name (without .md extension)
+            
+        Returns:
+            str: Workflow content
+            
+        Raises:
+            FileNotFoundError: If workflow doesn't exist
+        """
+        if not project.workspace_path:
+            raise FileNotFoundError(f"Workflow '{workflow_name}' not found")
+        
+        workflow_path = os.path.join(
+            project.workspace_path,
+            ".clineworkflows",
+            f"{workflow_name}.md"
+        )
+        
+        if not os.path.exists(workflow_path):
+            raise FileNotFoundError(f"Workflow '{workflow_name}' not found")
+        
+        with open(workflow_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    
+    async def update_workflow(
+        self,
+        project: ProjectModel,
+        workflow_name: str,
+        content: str
+    ) -> None:
+        """
+        Update a workflow's content.
+        
+        Args:
+            project: ProjectModel instance
+            workflow_name: Workflow name (without .md extension)
+            content: New workflow content
+        """
+        if not project.workspace_path:
+            raise ValueError("Project workspace path not configured")
+        
+        workflows_dir = os.path.join(project.workspace_path, ".clineworkflows")
+        os.makedirs(workflows_dir, exist_ok=True)
+        
+        workflow_path = os.path.join(workflows_dir, f"{workflow_name}.md")
+        
+        with open(workflow_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        logger.info(f"Updated workflow '{workflow_name}' for project {project.id}")
+    
+    async def create_workflow(
+        self,
+        project: ProjectModel,
+        workflow_name: str,
+        content: str
+    ) -> None:
+        """
+        Create a new workflow.
+        
+        Args:
+            project: ProjectModel instance
+            workflow_name: Workflow name (without .md extension)
+            content: Workflow content
+        """
+        await self.update_workflow(project, workflow_name, content)
+    
+    async def delete_workflow(
+        self,
+        project: ProjectModel,
+        workflow_name: str
+    ) -> None:
+        """
+        Delete a workflow.
+        
+        Args:
+            project: ProjectModel instance
+            workflow_name: Workflow name (without .md extension)
+            
+        Raises:
+            FileNotFoundError: If workflow doesn't exist
+        """
+        if not project.workspace_path:
+            raise FileNotFoundError(f"Workflow '{workflow_name}' not found")
+        
+        workflow_path = os.path.join(
+            project.workspace_path,
+            ".clineworkflows",
+            f"{workflow_name}.md"
+        )
+        
+        if not os.path.exists(workflow_path):
+            raise FileNotFoundError(f"Workflow '{workflow_name}' not found")
+        
+        os.remove(workflow_path)
+        logger.info(f"Deleted workflow '{workflow_name}' for project {project.id}")
+    
     def get_api_config(self) -> ApiKeyConfigSchema:
         """
         Get current API key configuration from environment.

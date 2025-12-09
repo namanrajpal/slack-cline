@@ -83,6 +83,26 @@ class Settings(BaseSettings):
         default="default",
         description="Default tenant ID for single-tenant setup"
     )
+    
+    # GitHub OAuth settings (for per-user Git credentials)
+    github_client_id: str = Field(
+        default="",
+        description="GitHub OAuth App Client ID"
+    )
+    github_client_secret: str = Field(
+        default="",
+        description="GitHub OAuth App Client Secret"
+    )
+    github_oauth_redirect_uri: str = Field(
+        default="http://localhost:8000/auth/github/callback",
+        description="GitHub OAuth callback URL"
+    )
+    
+    # Application base URL (for OAuth redirects)
+    app_base_url: str = Field(
+        default="http://localhost:8000",
+        description="Base URL for the application"
+    )
 
 
 # Global settings instance
