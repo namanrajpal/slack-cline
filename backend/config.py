@@ -45,6 +45,10 @@ class Settings(BaseSettings):
         default="",
         description="Slack bot token for API calls"
     )
+    slack_bot_user_id: str = Field(
+        default="",
+        description="Slack bot user ID for @mention detection (e.g., U08XXXXXXXX)"
+    )
     
     # Cline Core gRPC settings
     cline_core_host: str = Field(

@@ -44,16 +44,28 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
     # Get raw body ONCE for both signature verification and parsing
     body = await request.body()
     
-    # Check for URL verification challenge (Event Subscriptions setup)
-    # This happens when you configure Event Subscriptions in Slack
+    # Try to parse as JSON first (for Event Subscriptions like message.channels, message.im)
     try:
         payload = json.loads(body.decode('utf-8'))
-        if payload.get("type") == "url_verification":
+        event_type = payload.get("type", "")
+        
+        # URL verification challenge (Event Subscriptions setup)
+        if event_type == "url_verification":
             challenge = payload.get("challenge", "")
             logger.info(f"Received URL verification challenge: {challenge[:20]}...")
             return JSONResponse(content={"challenge": challenge})
+        
+        # Event callbacks (message.channels, message.im, reaction_added, etc.)
+        # These are sent when you subscribe to bot events in Slack
+        if event_type == "event_callback":
+            return await handle_event_callback(payload, background_tasks)
+        
+        # Other JSON event types we don't handle yet
+        logger.debug(f"Ignoring unknown JSON event type: {event_type}")
+        return JSONResponse(content={"ok": True})
+        
     except (json.JSONDecodeError, UnicodeDecodeError):
-        # Not JSON, probably form-encoded slash command - continue normally
+        # Not JSON, must be form-encoded slash command - continue normally
         pass
     
     timestamp, signature = extract_slack_headers(request)
@@ -134,6 +146,152 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
                 "text": "❌ An error occurred processing your command. Please try again."
             }
         )
+
+
+async def handle_event_callback(payload: Dict[str, Any], background_tasks: BackgroundTasks) -> JSONResponse:
+    """
+    Handle Slack Event API callbacks (message.channels, message.im, etc.).
+    
+    This is called when events occur in channels/DMs that the bot is subscribed to.
+    Processes thread replies to continue conversations with Cline.
+    
+    Event payload structure:
+    {
+        "type": "event_callback",
+        "event": {
+            "type": "message",  # or "reaction_added", etc.
+            "channel": "C1234567890",
+            "user": "U1234567890",
+            "text": "Hello world",
+            "ts": "1234567890.123456",
+            "thread_ts": "1234567890.123456"  # Present if this is a thread reply
+        },
+        "team_id": "T1234567890",
+        "event_id": "Ev1234567890"
+    }
+    
+    Args:
+        payload: The full event callback payload from Slack
+        background_tasks: FastAPI background tasks for async processing
+        
+    Returns:
+        JSONResponse: Acknowledgement response to Slack (must respond within 3 seconds)
+    """
+    event = payload.get("event", {})
+    event_type = event.get("type", "unknown")
+    channel_id = event.get("channel", "")
+    user_id = event.get("user", "")
+    text = event.get("text", "")
+    thread_ts = event.get("thread_ts")
+    message_ts = event.get("ts", "")
+    
+    # Ignore bot messages to prevent infinite loops
+    # Bot messages have bot_id or subtype="bot_message"
+    if event.get("bot_id") or event.get("subtype") == "bot_message":
+        return JSONResponse(content={"ok": True})
+    
+    # Ignore message edits/deletes (subtype indicates these)
+    subtype = event.get("subtype", "")
+    if subtype in ("message_changed", "message_deleted", "channel_join", "channel_leave"):
+        return JSONResponse(content={"ok": True})
+    
+    # Process message events
+    if event_type == "message":
+        # Check if this is a thread reply (has thread_ts)
+        if thread_ts and user_id and text:
+            # Only process if bot is @mentioned in the message
+            # Slack mentions look like <@USERID>
+            bot_user_id = settings.slack_bot_user_id
+            bot_mention = f"<@{bot_user_id}>" if bot_user_id else None
+            
+            if not bot_user_id:
+                # Bot user ID not configured - log warning once and skip
+                logger.debug("SLACK_BOT_USER_ID not configured, ignoring thread reply")
+                return JSONResponse(content={"ok": True})
+            
+            if bot_mention not in text:
+                # Bot not mentioned, ignore this thread reply
+                logger.debug(f"Thread reply without @mention, ignoring (thread: {thread_ts})")
+                return JSONResponse(content={"ok": True})
+            
+            # Strip the @mention from the text before sending to Cline
+            clean_text = text.replace(bot_mention, "").strip()
+            
+            log_slack_event(
+                "thread_reply_received",
+                channel_id=channel_id,
+                user_id=user_id,
+                thread_ts=thread_ts,
+                text=clean_text[:100]
+            )
+            
+            # Queue background task to process thread reply
+            # We must respond within 3 seconds, so do actual work in background
+            background_tasks.add_task(
+                process_thread_reply,
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                text=clean_text,  # Use cleaned text without @mention
+                message_ts=message_ts
+            )
+    
+    # Acknowledge quickly - Slack requires 200 OK within 3 seconds
+    return JSONResponse(content={"ok": True})
+
+
+async def process_thread_reply(
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    text: str,
+    message_ts: str
+) -> None:
+    """
+    Process a thread reply and send it to the corresponding Cline task.
+    
+    This runs as a background task after immediately acknowledging to Slack.
+    
+    Flow:
+    1. Find run by slack_thread_ts
+    2. Check if run is still active and has metadata
+    3. Send message to Cline via CLI
+    4. Restart event streaming to capture response
+    5. Response will be posted back to thread via normal event handling
+    
+    Args:
+        channel_id: Slack channel ID
+        thread_ts: Thread timestamp (matches run.slack_thread_ts)
+        user_id: User who sent the reply
+        text: Message text
+        message_ts: Message timestamp
+    """
+    try:
+        orchestrator = get_orchestrator_service()
+        
+        async for session in get_session():
+            try:
+                result = await orchestrator.handle_thread_reply(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    user_id=user_id,
+                    text=text,
+                    session=session
+                )
+                
+                if result:
+                    logger.info(f"Thread reply processed successfully for thread {thread_ts}")
+                else:
+                    logger.debug(f"Thread reply not processed (no matching run or run not active) for thread {thread_ts}")
+                
+                break  # Exit after processing
+                
+            except Exception as e:
+                logger.error(f"Error processing thread reply: {e}", exc_info=True)
+                break
+                
+    except Exception as e:
+        logger.error(f"Critical error in thread reply processing: {e}", exc_info=True)
 
 
 async def handle_cline_command(command_data: SlackCommandSchema, background_tasks: BackgroundTasks) -> JSONResponse:
