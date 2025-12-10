@@ -412,6 +412,53 @@ async def dashboard_health():
 
 
 # ============================================================================
+# SLINE AGENT TEST ENDPOINTS
+# ============================================================================
+
+@router.post("/test/sline-chat")
+async def test_sline_chat(
+    request: TestSlackCommandSchema,
+    session: AsyncSession = Depends(get_session)
+):
+    """
+    Test the Sline agent directly without Slack integration.
+    
+    This calls the AgentService directly to test the LangGraph-based agent.
+    """
+    try:
+        logger.info(f"Sline chat test: {request.text}")
+        
+        from modules.agent.service import get_agent_service
+        
+        agent_service = get_agent_service()
+        
+        # Use the text as the message, channel_id for project lookup
+        response = await agent_service.handle_message(
+            channel_id=request.channel_id,
+            thread_ts="test-thread-123",  # Use trigger_id as thread_ts for testing
+            user_id=request.user_id,
+            text=request.text,
+            session=session,
+        )
+        
+        return {
+            "success": True,
+            "message": "Sline responded",
+            "response": response,
+            "channel_id": request.channel_id,
+            "thread_ts": "test-thread-123",
+        }
+        
+    except Exception as e:
+        logger.error(f"Sline chat test failed: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"Test failed: {str(e)}",
+            "response": None,
+        }
+
+
+# ============================================================================
 # REAL-TIME EVENT STREAMING (SSE)
 # ============================================================================
 
