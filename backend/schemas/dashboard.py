@@ -13,10 +13,12 @@ from pydantic import BaseModel, Field, HttpUrl, ConfigDict
 
 
 class ProjectCreateSchema(BaseModel):
-    """Schema for creating a new project mapping."""
+    """Schema for creating a new project."""
     
     tenant_id: str = Field(default="default", description="Tenant identifier")
-    slack_channel_id: str = Field(..., description="Slack channel ID")
+    name: str = Field(..., description="Project name (unique identifier)")
+    description: Optional[str] = Field(None, description="Project description for LLM classification")
+    slack_channel_id: Optional[str] = Field(None, description="Slack channel ID (optional)")
     repo_url: str = Field(..., description="Git repository URL")
     default_ref: str = Field(default="main", description="Default branch/ref")
 
@@ -24,6 +26,9 @@ class ProjectCreateSchema(BaseModel):
 class ProjectUpdateSchema(BaseModel):
     """Schema for updating an existing project."""
     
+    name: Optional[str] = Field(None, description="Project name")
+    description: Optional[str] = Field(None, description="Project description")
+    slack_channel_id: Optional[str] = Field(None, description="Slack channel ID")
     repo_url: Optional[str] = Field(None, description="Git repository URL")
     default_ref: Optional[str] = Field(None, description="Default branch/ref")
 
@@ -35,7 +40,9 @@ class ProjectResponseSchema(BaseModel):
     
     id: UUID
     tenant_id: str
-    slack_channel_id: str
+    name: str
+    description: Optional[str]
+    slack_channel_id: Optional[str]
     repo_url: str
     default_ref: str
     created_at: datetime

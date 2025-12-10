@@ -1,347 +1,303 @@
-# Slack-Cline Integration
+# Sline - Your AI Coding Teammate in Slack
 
-A FastAPI-based backend service that integrates Slack with Cline Core via gRPC, enabling developers to trigger Cline runs directly from Slack channels and see progress updates in real-time.
+**Sline is a conversational AI coding assistant that lives in Slack, helping development teams understand their codebase, answer questions, and collaborate on implementation ideas.**
 
-# Documentation 
-- GETTING_STARTED.md - Complete walkthrough with troubleshooting
-- FINAL_ARCHITECTURE.md - Current CLI-based architecture
-- CLINE_CLI_AUTHENTICATION.md - API key configuration guide
-- IMPLEMENTATION_SUMMARY.md - Architecture and decisions
-- implementation_plan.md - Original technical specification
+Simply @mention Sline anywhere in Slack, and it becomes part of the conversation - analyzing code, answering questions, and suggesting improvements naturally.
+
+## 🎯 Product Vision
+
+Sline isn't a bot you command - it's a teammate you collaborate with.
+
+```
+#frontend-team channel
+
+👤 Alice: Hey team, we need to add dark mode. @sline what do you think?
+
+🤖 Sline: Hey! 👋 Looking at the codebase, I see you're using Tailwind CSS 
+         with a theme provider in `src/context/ThemeContext.tsx`. 
+         
+         Here's what I'd suggest:
+         1. Add dark mode classes to your tailwind.config.js
+         2. Update the ThemeContext to persist preference
+         3. Add a toggle component
+
+👤 Bob: We also need to make sure it respects system preferences
+
+🤖 Sline: Good point Bob! I'll include `prefers-color-scheme` media query 
+         detection. The ThemeContext can check this on mount.
+```
+
+## ✨ Key Features
+
+- **💬 Conversational**: Just @mention Sline - no command syntax to learn
+- **🧵 Thread-aware**: Maintains conversation context across multiple messages
+- **🔧 Autonomous**: Uses tools (read files, search code) automatically when needed
+- **💾 Persistent**: Conversations survive server restarts
+- **🎯 Multi-project**: Intelligently selects the right project based on context
+- **📊 Dashboard**: Test and configure without touching Slack
 
 ## 🏗️ Architecture
 
-The system uses Cline CLI subprocess calls for simplicity and reliability:
-
-- **Slack Gateway**: HTTP endpoints for Slack webhooks with signature verification
-- **Run Orchestrator**: Business logic coordinating between Slack, database, and Cline CLI  
-- **Execution Engine**: CLI subprocess wrapper for Cline commands
+Sline uses a **native Python LangGraph agent** (no subprocess calls, no external CLI):
 
 ```
-Slack Workspace ←→ FastAPI Backend ←→ Cline CLI (subprocess) ←→ Cline Core
-                        ↓
-                   PostgreSQL
+Slack @mentions → FastAPI Backend → SlineBrain (ReAct Agent)
+                        ↓                   ↓
+                   PostgreSQL         File Tools
+                (Conversations)    (read/search/list)
 ```
+
+- **SlineBrain**: LangGraph ReAct agent with autonomous tool usage
+- **Conversations**: PostgreSQL stores thread state with full message history
+- **Tools**: Bound to workspace (read_file, list_files, search_files)
+- **Dashboard**: React app for testing and configuration
 
 **See [FINAL_ARCHITECTURE.md](./FINAL_ARCHITECTURE.md) for complete architecture details.**
 
 ## 🚀 Quick Start
 
-### Prerequisites
+Get started in 5 minutes! Follow our **[Quick Start Guide](docs/getting-started/quickstart.md)** for detailed instructions.
 
-- Docker and Docker Compose
-- Node.js 18+ (for Cline Core)
-- Python 3.12+ (for local development)
-- A Slack workspace where you can install apps
+### TL;DR
 
-### 1. Configure Environment
-
-```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your Slack credentials
-```
-
-Edit `.env`:
-```bash
-SLACK_SIGNING_SECRET=your_slack_signing_secret_here
-SLACK_BOT_TOKEN=xoxb-your-bot-token-here
-CLINE_CORE_HOST=localhost
-CLINE_CORE_PORT=50051
-```
-
-### 2. Start Services
-
-```bash
-# Terminal 1: Start PostgreSQL and Backend (includes Cline CLI)
+```powershell
+# 1. Start services
 cd slack-cline
 docker-compose up
 
-# Terminal 2: Expose to internet (for Slack webhooks)
-ngrok http 8000
+# 2. Start dashboard (new terminal)
+cd frontend
+npm install
+npm run dev
+
+# 3. Configure at http://localhost:3001/settings
+# 4. Create project at http://localhost:3001/projects
+# 5. Test at http://localhost:3001/admin
 ```
 
-The backend will be available at `http://localhost:8000`. Cline CLI is automatically installed in the Docker container.
+**Dashboard:** http://localhost:3001  
+**Backend API:** http://localhost:8000
 
-📚 **For detailed setup instructions, see [GETTING_STARTED.md](./GETTING_STARTED.md)**
-
-### 3. Configure Slack App
-
-Create a new Slack app at [api.slack.com](https://api.slack.com/apps):
-
-**Slash Commands:**
-- Command: `/cline`
-- Request URL: `https://your-domain.com/slack/events`
-- Description: "Trigger Cline runs from Slack"
-
-**Interactivity & Shortcuts:**
-- Request URL: `https://your-domain.com/slack/interactivity`
-
-**OAuth & Permissions:**
-Required bot token scopes:
-- `chat:write` - Post messages
-- `commands` - Receive slash commands
-
-**Event Subscriptions:** (Optional)
-- Request URL: `https://your-domain.com/slack/events`
-
+📚 **Full Guide:** [docs/getting-started/quickstart.md](docs/getting-started/quickstart.md)
 
 ## 💬 Usage
 
-### Basic Commands
+### Primary Interaction: @mentions
 
-```bash
-# Start a new Cline run
-/cline run fix failing unit tests
+Just @mention Sline anywhere in Slack:
 
-# Check run status  
-/cline status
-
-# Get help
-/cline help
+```
+@sline what files are in the src directory?
+@sline can you explain how the auth module works?
+@sline search for TODO comments in the codebase
 ```
 
-### Interactive Features
+Sline will:
+- Automatically use tools to answer your question
+- Respond in a thread (keeps channel clean)
+- Remember the conversation if you follow up
 
-- **Progress Updates**: Real-time progress shown in Slack threads
-- **Cancel Button**: Click to cancel running tasks
-- **Status Indicators**: Emoji-based status (⏳ 🔧 ✅ ❌ ⏹️)
+### Secondary: Slash Commands (Utilities)
 
-### Channel Setup
+```
+/cline help     # Show how to interact with Sline
+/cline status   # Show active conversations
+```
 
-For MVP, the system creates a default repository mapping for each channel. In production, you'd configure channel → repository mappings through an admin interface.
+### Multi-Turn Conversations
+
+```
+You: @sline what's in the README?
+Sline: Looking at README.md, it's a FastAPI backend service...
+
+You: @sline can you find the main entry point?
+Sline: Sure! Looking at the codebase... The main entry point is `main.py`...
+
+You: @sline what does it import?
+Sline: [Checks code] It imports FastAPI, uvicorn, and the routers...
+```
+
+Each thread maintains full conversation history!
 
 ## 🛠️ Development
 
-### Local Development Setup
+Full development guide: **[docs/development/setup.md](docs/development/setup.md)**
 
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+### Key Technologies
 
-# Install dependencies
-pip install -r requirements.txt
+- **LangGraph** - Agent workflow orchestration
+- **LangChain** - Tool integration and LLM abstraction
+- **FastAPI** - Async Python web framework
+- **PostgreSQL** - Conversation and project storage
+- **React + Vite** - Dashboard interface
+- **Docker** - Containerization
 
-# Start PostgreSQL (or use Docker)
-docker-compose up db -d
+### Debugging
 
-# Run the application
-cd backend
-python main.py
+Use VS Code debugger with Docker:
+```powershell
+# Enable debug mode in docker-compose.yml
+docker-compose up
+# Press F5 in VS Code to attach
 ```
 
-### Project Structure
+📚 **Full Guide:** [docs/development/debugging.md](docs/development/debugging.md)
 
-```
-slack-cline/
-├── backend/                    # FastAPI application
-│   ├── main.py                # Application entry point
-│   ├── config.py              # Configuration management
-│   ├── database.py            # Database setup
-│   ├── models/                # SQLAlchemy models
-│   │   ├── project.py         # Channel→repo mapping
-│   │   └── run.py             # Run tracking
-│   ├── schemas/               # Pydantic schemas
-│   │   ├── slack.py           # Slack webhook validation
-│   │   └── run.py             # Run API schemas
-│   ├── modules/               # Core business logic
-│   │   ├── slack_gateway/     # Slack webhook handling
-│   │   ├── orchestrator/      # Run lifecycle management
-│   │   └── execution_engine/  # Cline Core gRPC client
-│   ├── utils/                 # Utilities
-│   │   ├── logging.py         # Structured logging
-│   │   └── slack_client.py    # Slack API wrapper
-├── docker-compose.yml         # Local development environment
-├── Dockerfile                 # Backend container
-└── requirements.txt           # Python dependencies
-```
+## 📊 Dashboard Features
 
-### Key Components
+The dashboard is your **testing and configuration interface**:
 
-**Slack Gateway** (`modules/slack_gateway/`)
-- Handles webhook signature verification
-- Parses slash commands and interactive components
-- Converts Slack events to internal commands
+- **📁 Projects** - Configure repositories
+- **⚙️ Settings** - Set up LLM API keys  
+- **🧪 Admin Panel** - Test without Slack
+- **📈 Home** - Overview statistics
 
-**Run Orchestrator** (`modules/orchestrator/`)
-- Manages complete run lifecycle
-- Coordinates between Slack, database, and Cline Core
-- Handles event streaming and status updates
-
-**Execution Engine** (`modules/execution_engine/`)
-- CLI subprocess wrapper for Cline commands
-- Manages instance creation and cleanup
-- Streams output and events
-
-### Database Models
-
-**Projects Table:**
-```sql
-CREATE TABLE projects (
-    id UUID PRIMARY KEY,
-    tenant_id VARCHAR(255) NOT NULL,
-    slack_channel_id VARCHAR(255) NOT NULL,
-    repo_url VARCHAR(512) NOT NULL,
-    default_ref VARCHAR(255) DEFAULT 'main',
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP
-);
-```
-
-**Runs Table:**
-```sql
-CREATE TABLE runs (
-    id UUID PRIMARY KEY,
-    tenant_id VARCHAR(255) NOT NULL,
-    project_id UUID REFERENCES projects(id),
-    cline_run_id VARCHAR(255),
-    status VARCHAR(50) NOT NULL,
-    task_prompt TEXT NOT NULL,
-    slack_channel_id VARCHAR(255),
-    slack_thread_ts VARCHAR(255),
-    created_at TIMESTAMP,
-    started_at TIMESTAMP,
-    finished_at TIMESTAMP,
-    summary TEXT
-);
-```
+📚 **Full Guide:** [docs/user-guide/dashboard.md](docs/user-guide/dashboard.md)
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DEBUG` | Enable debug mode | `false` |
-| `PORT` | Server port | `8000` |
-| `LOG_LEVEL` | Logging level | `INFO` |
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `SLACK_SIGNING_SECRET` | Slack app signing secret | Required |
-| `SLACK_BOT_TOKEN` | Slack bot token | Required |
-| `CLINE_CORE_HOST` | Cline Core gRPC host | `localhost` |
-| `CLINE_CORE_PORT` | Cline Core gRPC port | `50051` |
-| `CLINE_CORE_TIMEOUT` | gRPC timeout (seconds) | `300` |
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `CLINE_PROVIDER` | LLM provider | Yes | `anthropic` |
+| `CLINE_API_KEY` | LLM API key | Yes | - |
+| `CLINE_MODEL_ID` | Model identifier | Yes | - |
+| `SLACK_BOT_TOKEN` | Slack bot token | Yes | - |
+| `SLACK_SIGNING_SECRET` | Slack signing secret | Yes | - |
+| `SLACK_BOT_USER_ID` | Bot's user ID (for @mentions) | Yes | - |
+| `DATABASE_URL` | PostgreSQL connection | No | Auto-configured |
+| `LOG_LEVEL` | Logging verbosity | No | `INFO` |
 
-### Slack App Configuration
+### Slack App Setup
 
-Your Slack app needs these configurations:
+**Required Permissions** (Bot Token Scopes):
+- `chat:write` - Post messages to channels
+- `app_mentions:read` - Receive @mention events
+- `channels:history` - Read channel messages  (for thread context)
+- `im:history` - Read DM messages (for DM support)
 
-1. **Slash Commands**: `/cline` pointing to `/slack/events`
-2. **Interactivity**: Button clicks pointing to `/slack/interactivity`  
-3. **Bot Token Scopes**: `chat:write`, `commands`
-4. **Signing Secret**: For webhook verification
+**Event Subscriptions**:
+- Subscribe to: `app_mention`, `message.channels`, `message.im`
+- Request URL: `https://your-domain.com/slack/events`
 
-## 📝 API Endpoints
-
-### Health Checks
-- `GET /health` - Basic health check
-- `GET /health/detailed` - Detailed health with dependencies
-- `GET /slack/health` - Slack Gateway health
-
-### Slack Integration
-- `POST /slack/events` - Slash command webhooks
-- `POST /slack/interactivity` - Interactive component webhooks
-
-## 🔍 Monitoring & Logging
-
-The application uses structured logging with JSON output in production:
-
-```bash
-# View logs
-docker-compose logs -f backend
-
-# Filter by component
-docker-compose logs -f backend | grep "slack.gateway"
-docker-compose logs -f backend | grep "orchestrator" 
-docker-compose logs -f backend | grep "execution.client"
-```
-
-Log levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
-
-## 🚢 Deployment
-
-### Production Setup
-
-1. **Environment**: Set production environment variables
-2. **Database**: Use managed PostgreSQL (RDS, Cloud SQL)
-3. **SSL**: Enable HTTPS with valid certificates
-4. **Monitoring**: Add application monitoring (Sentry, DataDog)
-5. **Scaling**: Use container orchestration (K8s, ECS)
-
-### Docker Production Build
-
-```bash
-# Build production image
-docker build -t slack-cline-backend .
-
-# Run with production config
-docker run -d \
-  --name slack-cline-backend \
-  -p 8000:8000 \
-  --env-file .env.production \
-  slack-cline-backend
-```
+**Slash Commands** (Optional):
+- Command: `/cline`
+- Request URL: `https://your-domain.com/slack/events`
 
 ## 🧪 Testing
 
+### Dashboard Testing (No Slack Required)
+
+1. Start services: `docker-compose up`
+2. Start dashboard: `cd frontend && npm run dev`
+3. Configure API keys: http://localhost:3001/settings
+4. Create project: http://localhost:3001/projects
+5. Test agent: http://localhost:3001/admin
+
+This tests the complete agent flow without Slack setup!
+
+### Manual Testing
+
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio pytest-mock
+# Check backend health
+curl http://localhost:8000/health
 
-# Run tests
-pytest tests/
+# View database
+docker-compose exec db psql -U postgres -d slack_cline
+  SELECT * FROM conversations;
 
-# Run with coverage
-pytest --cov=backend tests/
+# View logs
+docker-compose logs -f backend
+
+# Check workspace directory
+ls -la slack-cline/data/workspaces/
 ```
 
-## 🤝 Contributing
+## 📝 Documentation
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+### 📚 Complete Documentation
 
-## 📄 License
+All documentation is now in the **[docs/](docs/)** folder:
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+- **[Getting Started](docs/getting-started/quickstart.md)** - 5-minute setup guide
+- **[User Guide](docs/user-guide/dashboard.md)** - Using Sline and dashboard
+- **[Architecture](docs/architecture/overview.md)** - System design deep dive
+- **[Development](docs/development/setup.md)** - Dev environment setup
+- **[Debugging](docs/development/debugging.md)** - VS Code debugging guide
+
+### 🔗 Quick Links
+
+- [Quick Start](docs/getting-started/quickstart.md) - Get running in 5 minutes
+- [Dashboard Guide](docs/user-guide/dashboard.md) - Testing interface
+- [Architecture Overview](docs/architecture/overview.md) - How it works
+- [Multi-Project Setup](docs/architecture/multi-project.md) - LLM classification
+- [API Reference](docs/development/api-reference.md) - REST endpoints *(coming soon)*
+
+## 🚢 Deployment
+
+See **[docs/getting-started/quickstart.md](docs/getting-started/quickstart.md)** for production deployment checklist.
+
+**Key Steps:**
+1. Deploy Docker container to cloud platform
+2. Configure Slack Event Subscriptions
+3. Set up managed PostgreSQL
+4. Configure SSL/HTTPS
+5. Secure API keys
 
 ## 🆘 Troubleshooting
 
-### Common Issues
+Common issues and solutions: **[docs/user-guide/troubleshooting.md](docs/user-guide/troubleshooting.md)** *(coming soon)*
 
-**"Slack signature verification failed"**
-- Check that `SLACK_SIGNING_SECRET` matches your Slack app
-- Ensure your webhook URL is accessible from the internet
-- Verify the request is reaching the correct endpoint
+**Quick Checks:**
+```powershell
+# Backend health
+curl http://localhost:8000/health
 
-**"No repository configured for channel"**
-- The system auto-creates default repository mappings for MVP
-- Check logs for project creation messages
-- Verify database connectivity
+# View logs
+docker-compose logs -f backend
 
-**"Failed to connect to Cline Core"**
-- Ensure Cline Core is running and accessible
-- Check `CLINE_CORE_HOST` and `CLINE_CORE_PORT` settings
-- Verify gRPC connectivity
+# Check database
+docker-compose exec db psql -U postgres -d slack_cline
+```
 
-**Database connection issues**
-- Verify PostgreSQL is running
-- Check `DATABASE_URL` format: `postgresql+asyncpg://user:pass@host:port/db`
-- Ensure database exists and user has proper permissions
+For detailed troubleshooting, see the [Quick Start Guide](docs/getting-started/quickstart.md#troubleshooting).
 
-### Getting Help
 
-1. Check application logs: `docker-compose logs -f backend`
-2. Verify configuration in `.env`
-3. Test connectivity to external services (Slack, Cline Core, database)
-4. Check Slack app configuration matches documentation
+## 🤝 Contributing
 
-## 🔗 Related Projects
+This is an active development project. Key areas for contribution:
 
-- [Cline](https://github.com/cline/cline) - AI coding agent
-- [Slack Bolt](https://slack.dev/bolt-js/) - Slack app framework
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern web framework
+- **Phase 2**: Planning and execution nodes
+- **Phase 3**: Advanced tools (execute_command, code analysis)
+- **Phase 4**: Repository cloning and workspace management
+- **Testing**: Unit tests for agent nodes and tools
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+## 🚀 What's Next?
+
+**Current State (MVP)**:
+- ✅ @mention-based conversational interaction
+- ✅ Thread-aware multi-turn conversations
+- ✅ Autonomous tool usage (read, search, list)
+- ✅ LLM-based multi-project classification
+- ✅ Persistent conversation state
+
+**Coming Soon (Phase 2)**:
+- 📋 Implementation planning workflow
+- ✅ Approval buttons in Slack
+- ✏️ Write tools (file editing)
+- 🚀 Plan execution
+
+**Future (Phase 3+)**:
+- 🌳 Code analysis with tree-sitter
+- 💻 Command execution with output streaming
+- 🔀 Git operations (commit, branch, PR)
+- 📊 Team analytics dashboard
+
+---
+
+**Ready to get started?** → **[Quick Start Guide](docs/getting-started/quickstart.md)** 🎉

@@ -153,7 +153,7 @@ class ClineCliClient:
         logger.info(f"Starting event stream for task {task_id}")
         
         # Timeout configuration for PLAN mode idle detection
-        PLAN_IDLE_TIMEOUT = 30.0  # seconds - if no events for this long, assume plan is complete
+        PLAN_IDLE_TIMEOUT = 45.0  # seconds - if no events for this long, assume plan is complete
         MAX_TIMEOUT_RETRIES = 2  # Maximum number of times to retry after timeout
         timeout_count = 0
         
@@ -661,7 +661,7 @@ class ClineCliClient:
         """
         cmd = [
             "cline", "task", "send",
-            "-y",  # Enable YOLO/autonomous mode
+            # "-y",  # Enable YOLO/autonomous mode
             "-m", "act",  # Switch to ACT mode
             "--approve",  # Approve the plan
             "--address", instance_address,

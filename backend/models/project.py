@@ -1,9 +1,9 @@
 """
-Project model for mapping Slack channels to Git repositories.
+Project model for Git repositories that Sline can work with.
 
-This model stores the configuration that maps Slack channels to specific
-Git repositories, enabling the system to know which repo to operate on
-when a command is issued in a particular channel.
+This model stores project configurations. Projects are identified by name
+and description, allowing Sline to intelligently classify which project
+a user is asking about using LLM-based classification.
 """
 
 from datetime import datetime
@@ -18,10 +18,11 @@ from database import Base
 
 class ProjectModel(Base):
     """
-    Model for storing Slack channel to repository mappings.
+    Model for storing project configurations.
     
-    This model represents the configuration that determines which Git repository
-    should be used when a Cline command is issued in a specific Slack channel.
+    Projects are identified by name and description, allowing Sline to
+    use LLM-based classification to determine which project the user is
+    asking about, rather than being tied to specific Slack channels.
     """
     
     __tablename__ = "projects"
@@ -30,10 +31,14 @@ class ProjectModel(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     
     # Tenant information (for multi-tenant support)
-    tenant_id = Column(String(255), nullable=False, index=True)
+    tenant_id = Column(String(255), nullable=False, index=True, default="default")
     
-    # Slack channel configuration
-    slack_channel_id = Column(String(255), nullable=False, index=True)
+    # Project identity - used for LLM classification
+    name = Column(String(255), nullable=False, unique=True, index=True)
+    description = Column(String(1024), nullable=True)
+    
+    # # Slack channel configuration (optional - for backwards compatibility)
+    slack_channel_id = Column(String(255), nullable=True, index=True)
     
     # Repository configuration
     repo_url = Column(String(512), nullable=False)
@@ -48,14 +53,15 @@ class ProjectModel(Base):
     
     # Relationships
     runs = relationship("RunModel", back_populates="project", cascade="all, delete-orphan")
+    conversations = relationship("ConversationModel", back_populates="project", cascade="all, delete-orphan")
     
     def __repr__(self):
-        return f"<ProjectModel(id={self.id}, channel={self.slack_channel_id}, repo={self.repo_url})>"
+        return f"<ProjectModel(id={self.id}, name={self.name}, repo={self.repo_url})>"
     
     @classmethod
     def find_by_channel(cls, session, tenant_id: str, slack_channel_id: str):
         """
-        Find a project by tenant and Slack channel.
+        Find a project by tenant and Slack channel (legacy method).
         
         Args:
             session: Database session
@@ -69,3 +75,17 @@ class ProjectModel(Base):
             cls.tenant_id == tenant_id,
             cls.slack_channel_id == slack_channel_id
         ).first()
+    
+    @classmethod
+    def find_by_name(cls, session, name: str):
+        """
+        Find a project by name.
+        
+        Args:
+            session: Database session
+            name: Project name
+            
+        Returns:
+            ProjectModel or None if not found
+        """
+        return session.query(cls).filter(cls.name == name).first()

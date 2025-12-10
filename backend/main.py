@@ -22,10 +22,13 @@ from modules.dashboard.routes import router as dashboard_router
 from modules.auth.github_oauth import auth_router
 from utils.logging import setup_logging
 
-# Reduce Slack SDK verbosity
+# Reduce Slack SDK and LangChain HTTP verbosity
 logging.getLogger("slack_sdk").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("anthropic").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+logging.getLogger("langchain").setLevel(logging.WARNING)
 
 
 async def cleanup_stale_runs():

@@ -850,6 +850,141 @@ class RunOrchestratorService:
             logger.error(f"Failed to approve plan for run {run_id}")
         
         return success
+    
+    async def handle_thread_reply(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        user_id: str,
+        text: str,
+        session: AsyncSession
+    ) -> bool:
+        """
+        Handle a thread reply from Slack and send it to the corresponding Cline task.
+        
+        This enables conversational interactions where users can:
+        - Provide additional context or clarification
+        - Answer Cline's questions
+        - Refine the plan with feedback
+        - Continue the conversation after plan is presented
+        
+        Flow:
+        1. Find run by slack_thread_ts
+        2. Verify run is active and has instance metadata
+        3. Send message to Cline via CLI (cline task send)
+        4. Restart event streaming to capture Cline's response
+        5. Response will be posted back to thread via normal event handling
+        
+        Args:
+            channel_id: Slack channel ID
+            thread_ts: Thread timestamp (matches run.slack_thread_ts)
+            user_id: User who sent the reply
+            text: Message text from user
+            session: Database session
+            
+        Returns:
+            bool: True if message was sent successfully, False otherwise
+        """
+        try:
+            # Find run by thread timestamp
+            result = await session.execute(
+                select(RunModel).where(
+                    RunModel.slack_channel_id == channel_id,
+                    RunModel.slack_thread_ts == thread_ts
+                )
+            )
+            run = result.scalar_one_or_none()
+            
+            if not run:
+                # No run found for this thread - this is normal for non-Cline threads
+                logger.debug(f"No run found for thread {thread_ts} in channel {channel_id}")
+                return False
+            
+            run_id = str(run.id)
+            
+            # Check if run is still active
+            if not run.is_active:
+                logger.info(f"Run {run_id} is not active (status: {run.status}), cannot process thread reply")
+                # Optionally post a message saying the run has ended
+                await self._post_run_ended_message(run, user_id)
+                return False
+            
+            # Get instance metadata
+            metadata = self._run_metadata.get(run_id)
+            if not metadata:
+                logger.warning(f"No metadata found for run {run_id} - instance may have been cleaned up")
+                await self._post_run_ended_message(run, user_id)
+                return False
+            
+            log_run_event(
+                "thread_reply_processing",
+                run_id,
+                cline_run_id=run.cline_run_id,
+                user_id=user_id,
+                message=text[:100]
+            )
+            
+            # Send message to Cline via CLI
+            success = await self.cli_client.send_message(
+                metadata["instance_address"],
+                metadata["workspace_path"],
+                text
+            )
+            
+            if success:
+                logger.info(f"Sent thread reply to Cline for run {run_id}")
+                
+                # Restart event streaming to capture Cline's response
+                # First stop any existing stream
+                await self._stop_event_stream(run_id)
+                
+                # Start fresh stream to capture the response
+                await self._start_event_stream(run)
+                
+                log_run_event(
+                    "thread_reply_sent",
+                    run_id,
+                    cline_run_id=run.cline_run_id,
+                    user_id=user_id
+                )
+                
+                return True
+            else:
+                logger.error(f"Failed to send thread reply to Cline for run {run_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error handling thread reply: {e}", exc_info=True)
+            return False
+    
+    async def _post_run_ended_message(self, run: RunModel, user_id: str) -> None:
+        """
+        Post a message indicating the run has ended and cannot accept replies.
+        
+        Args:
+            run: The run that has ended
+            user_id: User who tried to reply
+        """
+        try:
+            if not run.slack_thread_ts:
+                return
+            
+            status_emoji = {
+                RunStatus.SUCCEEDED: "✅",
+                RunStatus.FAILED: "❌",
+                RunStatus.CANCELLED: "🚫",
+            }.get(run.status, "⏹️")
+            
+            message = f"{status_emoji} This run has ended (status: {run.status.value}). Start a new run with `/cline run <task>`."
+            
+            await self.slack_client.post_message(
+                channel=run.slack_channel_id,
+                thread_ts=run.slack_thread_ts,
+                text=message
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to post run ended message: {e}")
 
 
 # Global service instance

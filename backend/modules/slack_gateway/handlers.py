@@ -15,8 +15,9 @@ from fastapi.responses import JSONResponse
 from config import settings
 from database import get_session
 from schemas.slack import SlackCommandSchema, SlackInteractivitySchema, StartRunCommand, CancelRunCommand
-from modules.orchestrator.service import get_orchestrator_service
+from modules.agent.service import get_agent_service
 from utils.logging import get_logger, log_slack_event
+from utils.slack_client import SlackClient
 from .verification import extract_slack_headers, require_slack_verification
 
 logger = get_logger("slack.gateway")
@@ -44,16 +45,28 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
     # Get raw body ONCE for both signature verification and parsing
     body = await request.body()
     
-    # Check for URL verification challenge (Event Subscriptions setup)
-    # This happens when you configure Event Subscriptions in Slack
+    # Try to parse as JSON first (for Event Subscriptions like message.channels, message.im)
     try:
         payload = json.loads(body.decode('utf-8'))
-        if payload.get("type") == "url_verification":
+        event_type = payload.get("type", "")
+        
+        # URL verification challenge (Event Subscriptions setup)
+        if event_type == "url_verification":
             challenge = payload.get("challenge", "")
             logger.info(f"Received URL verification challenge: {challenge[:20]}...")
             return JSONResponse(content={"challenge": challenge})
+        
+        # Event callbacks (message.channels, message.im, reaction_added, etc.)
+        # These are sent when you subscribe to bot events in Slack
+        if event_type == "event_callback":
+            return await handle_event_callback(payload, background_tasks)
+        
+        # Other JSON event types we don't handle yet
+        logger.debug(f"Ignoring unknown JSON event type: {event_type}")
+        return JSONResponse(content={"ok": True})
+        
     except (json.JSONDecodeError, UnicodeDecodeError):
-        # Not JSON, probably form-encoded slash command - continue normally
+        # Not JSON, must be form-encoded slash command - continue normally
         pass
     
     timestamp, signature = extract_slack_headers(request)
@@ -136,11 +149,172 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
         )
 
 
+async def handle_event_callback(payload: Dict[str, Any], background_tasks: BackgroundTasks) -> JSONResponse:
+    """
+    Handle Slack Event API callbacks (message.channels, message.im, etc.).
+    
+    This is called when events occur in channels/DMs that the bot is subscribed to.
+    Processes thread replies to continue conversations with Cline.
+    
+    Event payload structure:
+    {
+        "type": "event_callback",
+        "event": {
+            "type": "message",  # or "reaction_added", etc.
+            "channel": "C1234567890",
+            "user": "U1234567890",
+            "text": "Hello world",
+            "ts": "1234567890.123456",
+            "thread_ts": "1234567890.123456"  # Present if this is a thread reply
+        },
+        "team_id": "T1234567890",
+        "event_id": "Ev1234567890"
+    }
+    
+    Args:
+        payload: The full event callback payload from Slack
+        background_tasks: FastAPI background tasks for async processing
+        
+    Returns:
+        JSONResponse: Acknowledgement response to Slack (must respond within 3 seconds)
+    """
+    event = payload.get("event", {})
+    event_type = event.get("type", "unknown")
+    channel_id = event.get("channel", "")
+    user_id = event.get("user", "")
+    text = event.get("text", "")
+    thread_ts = event.get("thread_ts")
+    message_ts = event.get("ts", "")
+    
+    # Ignore bot messages to prevent infinite loops
+    # Bot messages have bot_id or subtype="bot_message"
+    if event.get("bot_id") or event.get("subtype") == "bot_message":
+        return JSONResponse(content={"ok": True})
+    
+    # Ignore message edits/deletes (subtype indicates these)
+    subtype = event.get("subtype", "")
+    if subtype in ("message_changed", "message_deleted", "channel_join", "channel_leave"):
+        return JSONResponse(content={"ok": True})
+    
+    # Process message events
+    if event_type == "message":
+        # Check if bot is @mentioned in ANY message (top-level or thread reply)
+        if user_id and text:
+            # Slack mentions look like <@USERID>
+            bot_user_id = settings.slack_bot_user_id
+            bot_mention = f"<@{bot_user_id}>" if bot_user_id else None
+            
+            if not bot_user_id:
+                # Bot user ID not configured - log warning once and skip
+                logger.debug("SLACK_BOT_USER_ID not configured, ignoring message")
+                return JSONResponse(content={"ok": True})
+            
+            if bot_mention not in text:
+                # Bot not mentioned, ignore this message
+                logger.debug(f"Message without @mention, ignoring")
+                return JSONResponse(content={"ok": True})
+            
+            # Strip the @mention from the text before sending to agent
+            clean_text = text.replace(bot_mention, "").strip()
+            
+            # Determine conversation thread_ts:
+            # - For thread replies: use existing thread_ts
+            # - For top-level messages: use message_ts (creates new thread)
+            conversation_thread_ts = thread_ts if thread_ts else message_ts
+            
+            log_slack_event(
+                "mention_received",
+                channel_id=channel_id,
+                user_id=user_id,
+                thread_ts=conversation_thread_ts,
+                text=clean_text[:100],
+                is_new_conversation=not bool(thread_ts)
+            )
+            
+            # Queue background task to process the message
+            # We must respond within 3 seconds, so do actual work in background
+            background_tasks.add_task(
+                process_thread_reply,
+                channel_id=channel_id,
+                thread_ts=conversation_thread_ts,  # Use this as conversation ID
+                user_id=user_id,
+                text=clean_text,  # Use cleaned text without @mention
+                message_ts=message_ts
+            )
+    
+    # Acknowledge quickly - Slack requires 200 OK within 3 seconds
+    return JSONResponse(content={"ok": True})
+
+
+async def process_thread_reply(
+    channel_id: str,
+    thread_ts: str,
+    user_id: str,
+    text: str,
+    message_ts: str
+) -> None:
+    """
+    Process a thread reply using AgentService.
+    
+    This runs as a background task after immediately acknowledging to Slack.
+    Continues the conversation by sending the message to the agent and posting
+    the response back to the thread.
+    
+    Args:
+        channel_id: Slack channel ID
+        thread_ts: Thread timestamp (conversation identifier)
+        user_id: User who sent the reply
+        text: Message text
+        message_ts: Message timestamp
+    """
+    try:
+        agent_service = get_agent_service()
+        slack_client = SlackClient()
+        
+        async for session in get_session():
+            try:
+                # Process message with agent
+                response = await agent_service.handle_message(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    user_id=user_id,
+                    text=text,
+                    session=session,
+                )
+                
+                # Post response to Slack thread
+                await slack_client.post_message(
+                    channel=channel_id,
+                    text=response,
+                    thread_ts=thread_ts,
+                )
+                
+                logger.info(f"Thread reply processed successfully for thread {thread_ts}")
+                break  # Exit after successful processing
+                
+            except Exception as e:
+                logger.error(f"Error processing thread reply: {e}", exc_info=True)
+                # Post error to thread
+                try:
+                    await slack_client.post_message(
+                        channel=channel_id,
+                        text=f"❌ Sline encountered an error: {str(e)}",
+                        thread_ts=thread_ts,
+                    )
+                except:
+                    pass
+                break
+                
+    except Exception as e:
+        logger.error(f"Critical error in thread reply processing: {e}", exc_info=True)
+
+
 async def handle_cline_command(command_data: SlackCommandSchema, background_tasks: BackgroundTasks) -> JSONResponse:
     """
     Handle `/cline` slash command.
     
-    Parses the command text and routes to appropriate subcommand handler.
+    Simplified command structure - primary interaction is via @mentions.
+    Slash commands are for utility functions only.
     
     Args:
         command_data: Validated command data from Slack
@@ -151,53 +325,81 @@ async def handle_cline_command(command_data: SlackCommandSchema, background_task
     """
     text = command_data.text.strip()
     
+    # If no subcommand, show help
     if not text:
-        return JSONResponse(content={
-            "response_type": "ephemeral",
-            "text": "Usage: `/cline run <task description>`\nExample: `/cline run fix failing unit tests`"
-        })
+        return await handle_help_command()
     
     # Parse command and arguments
     parts = text.split(maxsplit=1)
     subcommand = parts[0].lower() if parts else ""
-    args = parts[1] if len(parts) > 1 else ""
     
-    if subcommand == "run":
-        return await handle_run_command(command_data, args, background_tasks)
-    elif subcommand == "status":
+    if subcommand == "status":
         return await handle_status_command(command_data)
     elif subcommand == "github":
         return await handle_github_command(command_data)
     elif subcommand == "help":
         return await handle_help_command()
     else:
+        # Unknown command - suggest @mention instead
         return JSONResponse(content={
             "response_type": "ephemeral",
-            "text": f"Unknown subcommand: `{subcommand}`\nUse `/cline help` for available commands."
+            "text": f"❓ Unknown command: `{subcommand}`\n\n💡 **Tip:** To chat with Sline, just @mention me in any message!\n\nExample: `@sline what files are in this project?`\n\nUse `/cline help` for available commands."
         })
 
 
-async def start_run_background(start_command: StartRunCommand):
+async def process_agent_message_background(
+    channel_id: str,
+    user_id: str,
+    text: str,
+    initial_ts: str,
+):
     """
-    Background worker to start a Cline run.
+    Background worker to process message with Sline agent and post response.
     
     This runs asynchronously after returning immediate acknowledgement to Slack.
-    Posts updates via Slack's response_url.
     
     Args:
-        start_command: Command with run parameters
+        channel_id: Slack channel ID
+        user_id: User who sent the message
+        text: Message text
+        initial_ts: Thread timestamp for posting responses
     """
     try:
-        orchestrator = get_orchestrator_service()
+        agent_service = get_agent_service()
+        slack_client = SlackClient()
         
         async for session in get_session():
             try:
-                run = await orchestrator.start_run(start_command, session)
-                logger.info(f"Background task successfully started run {run.id}")
-                break  # Exit after successful start
+                # Process message with agent
+                response = await agent_service.handle_message(
+                    channel_id=channel_id,
+                    thread_ts=initial_ts,
+                    user_id=user_id,
+                    text=text,
+                    session=session,
+                )
+                
+                # Post response to Slack thread
+                await slack_client.post_message(
+                    channel=channel_id,
+                    text=response,
+                    thread_ts=initial_ts,
+                )
+                
+                logger.info(f"Agent response posted to thread {initial_ts}")
+                break  # Exit after successful processing
+                
             except Exception as e:
-                logger.error(f"Background task failed to start run: {e}", exc_info=True)
-                # TODO: Post error to response_url if available
+                logger.error(f"Background task failed to process message: {e}", exc_info=True)
+                # Post error to thread
+                try:
+                    await slack_client.post_message(
+                        channel=channel_id,
+                        text=f"❌ Sline encountered an error: {str(e)}",
+                        thread_ts=initial_ts,
+                    )
+                except:
+                    pass
                 break
                 
     except Exception as e:
@@ -206,10 +408,10 @@ async def start_run_background(start_command: StartRunCommand):
 
 async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str, background_tasks: BackgroundTasks) -> JSONResponse:
     """
-    Handle `/cline run <task>` command.
+    Handle `/cline run <task>` command using AgentService.
     
     Returns immediate acknowledgement to Slack (< 3 seconds), then queues
-    the actual work as a background task.
+    the actual agent processing as a background task.
     
     Args:
         command_data: Validated command data from Slack
@@ -217,7 +419,7 @@ async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str,
         background_tasks: FastAPI background tasks
         
     Returns:
-        JSONResponse: Immediate response to Slack
+        JSONResponse: Immediate response with thread timestamp
     """
     if not task_prompt.strip():
         return JSONResponse(content={
@@ -226,53 +428,47 @@ async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str,
         })
     
     try:
-        # Create internal command for orchestrator
-        start_command = StartRunCommand(
-            tenant_id=settings.default_tenant_id,
-            channel_id=command_data.channel_id,
-            user_id=command_data.user_id,
-            task_prompt=task_prompt,
-            response_url=command_data.response_url,
-            trigger_id=command_data.trigger_id
-        )
-        
         log_slack_event(
-            "run_command_created",
+            "agent_message_received",
             channel_id=command_data.channel_id,
             user_id=command_data.user_id,
-            task_prompt=task_prompt[:100]
+            text=task_prompt[:100]
         )
         
-        # Queue background task (non-blocking)
-        background_tasks.add_task(start_run_background, start_command)
+        # Post initial message to Slack to get thread_ts
+        slack_client = SlackClient()
+        initial_message = await slack_client.post_message(
+            channel=command_data.channel_id,
+            text=f"🤖 Hey! I'm working on: `{task_prompt}`",
+        )
         
-        # Return immediate acknowledgement (under 3 seconds!)
-        return JSONResponse(content={
-            "response_type": "in_channel",
-            "text": f"🚀 Starting Cline run: `{task_prompt}`",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": f"🚀 Starting Cline run: `{task_prompt}`"
-                    }
-                },
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn", 
-                        "text": "⏳ Setting up execution environment..."
-                    }
-                }
-            ]
-        })
+        # Get the thread timestamp from the response
+        thread_ts = initial_message.get("ts", "")
+        
+        if not thread_ts:
+            logger.error("Failed to get thread timestamp from Slack")
+            return JSONResponse(content={
+                "response_type": "ephemeral",
+                "text": "❌ Failed to create thread. Please try again."
+            })
+        
+        # Queue background task to process with agent (non-blocking)
+        background_tasks.add_task(
+            process_agent_message_background,
+            channel_id=command_data.channel_id,
+            user_id=command_data.user_id,
+            text=task_prompt,
+            initial_ts=thread_ts,
+        )
+        
+        # Return empty response (message already posted)
+        return JSONResponse(content={})
         
     except Exception as e:
-        logger.error(f"Error creating run command: {e}", exc_info=True)
+        logger.error(f"Error handling run command: {e}", exc_info=True)
         return JSONResponse(content={
             "response_type": "ephemeral",
-            "text": "❌ Failed to start run. Please try again."
+            "text": "❌ Failed to start. Please try again."
         })
 
 
@@ -344,17 +540,22 @@ async def handle_help_command() -> JSONResponse:
     """Handle `/cline help` command."""
     return JSONResponse(content={
         "response_type": "ephemeral",
-        "text": """🤖 **Cline Commands**
+        "text": """🤖 **Hey! I'm Sline, your AI coding teammate!**
 
 `/cline run <task>` - Start a new Cline run with the given task
-`/cline github` - Connect your GitHub account for commit attribution
 `/cline status` - Show active runs in this channel  
 `/cline help` - Show this help message
 
 **Examples:**
-• `/cline run fix failing unit tests`
-• `/cline run add user authentication to the login page`
-• `/cline run update README with installation instructions`
+• `@sline what files are in this project?`
+• `@sline can you explain how the auth system works?`
+• `@sline search for TODO comments`
+
+**⚙️ Utility Commands:**
+• `/cline status` - Show active conversations
+• `/cline help` - Show this help message
+
+**💡 Tip:** I'm conversational, not transactional! Feel free to ask questions, discuss approaches, and collaborate with your team in threads.
 """
     })
 

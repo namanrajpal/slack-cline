@@ -1,15 +1,20 @@
 # Core FastAPI Dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.0
-pydantic-settings==2.1.0
+pydantic>=2.7.4
+pydantic-settings>=2.5.0
 
 # Database Dependencies
 sqlalchemy[asyncio]==2.0.23
 asyncpg==0.29.0
 alembic==1.12.1
 
-# Note: gRPC dependencies removed - we use Cline CLI subprocess calls instead
+# LangChain / LangGraph - Sline Agent
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-anthropic>=0.2.0
+langchain-openai>=0.2.0
 
 # Slack Integration
 slack-sdk==3.24.0
