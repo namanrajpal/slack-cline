@@ -74,3 +74,6 @@ backend/proto/__pycache__/
 # Temporary files
 *.tmp
 *.temp
+
+# Data directory (workspaces, persistent storage)
+data/

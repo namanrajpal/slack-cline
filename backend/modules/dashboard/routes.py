@@ -356,6 +356,7 @@ async def test_slack_command(
         logger.info(f"Test command simulation: {request.command} {request.text}")
         
         # Import Slack schemas and handler
+        from fastapi import BackgroundTasks
         from schemas.slack import SlackCommandSchema
         from modules.slack_gateway.handlers import handle_cline_command
         
@@ -374,8 +375,11 @@ async def test_slack_command(
             trigger_id="test_trigger_id"
         )
         
+        # Create BackgroundTasks instance for the handler
+        background_tasks = BackgroundTasks()
+        
         # Call the Slack handler directly (same execution path as real Slack)
-        response = await handle_cline_command(command_data)
+        response = await handle_cline_command(command_data, background_tasks)
         
         # Extract response data
         response_body = None

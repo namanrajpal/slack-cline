@@ -17,7 +17,7 @@ services:
     command: python -m debugpy --listen 0.0.0.0:5678 main.py
     volumes:
       - ./backend:/app
-      - cline-workspaces:/home/app/workspaces
+      - ./data:/data  # Persistent workspaces storage
     depends_on:
       - db
     networks:

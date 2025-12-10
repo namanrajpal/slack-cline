@@ -64,6 +64,7 @@ async def create_tables():
     # Import models to ensure they're registered
     from models.project import ProjectModel  # noqa
     from models.run import RunModel  # noqa
+    from models.conversation import ConversationModel  # noqa
     
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

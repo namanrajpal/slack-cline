@@ -80,6 +80,21 @@ async def chat_node(state: SlineState) -> dict:
         # The result contains all messages including tool calls and responses
         response_messages = result.get("messages", [])
         
+        # Log tool calls for visibility
+        tool_call_count = 0
+        for msg in response_messages:
+            if isinstance(msg, AIMessage):
+                tool_calls = getattr(msg, 'tool_calls', None)
+                if tool_calls:
+                    for tool_call in tool_calls:
+                        tool_name = tool_call.get('name', 'unknown')
+                        tool_args = tool_call.get('args', {})
+                        logger.info(f"🔧 Tool call: {tool_name}({', '.join(f'{k}={repr(v)}' for k, v in tool_args.items())})")
+                        tool_call_count += 1
+        
+        if tool_call_count > 0:
+            logger.info(f"✅ Agent made {tool_call_count} tool call(s)")
+        
         # Find the final AI message (last AIMessage that's not a tool call)
         ai_response = None
         for msg in reversed(response_messages):
@@ -88,7 +103,7 @@ async def chat_node(state: SlineState) -> dict:
                 break
         
         if ai_response:
-            logger.info(f"chat_node response: {ai_response.content[:100]}...")
+            logger.info(f"💬 Agent response: {ai_response.content[:100]}...")
             
             # Return only the new AI message to be added via add_messages reducer
             return {

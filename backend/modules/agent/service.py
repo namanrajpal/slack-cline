@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from utils.logging import get_logger
 from models.project import ProjectModel
+from models.conversation import ConversationModel
 from .state import SlineState, create_initial_state
 from .graph import get_graph
 
@@ -43,11 +44,8 @@ class AgentService:
         # Key: f"{channel_id}:{thread_ts}"
         self._conversations: dict[str, SlineState] = {}
         
-        # Workspace base path
-        self._workspace_base = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "workspaces"
-        )
+        # Workspace base path - /data is mounted as Docker volume for persistence
+        self._workspace_base = "/data/workspaces"
         os.makedirs(self._workspace_base, exist_ok=True)
         
         logger.info(f"AgentService initialized, workspace base: {self._workspace_base}")
@@ -79,16 +77,17 @@ class AgentService:
         
         logger.info(f"Handling message for {conversation_key}: {text[:50]}...")
         
-        # Get or create conversation state
+        # Get or create conversation state (pass text for project classification)
         state = await self._get_or_create_state(
             channel_id=channel_id,
             thread_ts=thread_ts,
             user_id=user_id,
             session=session,
+            user_question=text,  # Pass question for LLM classification
         )
         
         if state is None:
-            return "❌ Sline couldn't find the project configuration for this channel. Please set up a project first."
+            return "❌ Sline couldn't find any configured projects. Please add projects first."
         
         # Add the user message to state
         user_message = HumanMessage(content=text)
@@ -104,6 +103,15 @@ class AgentService:
             
             # Update cached state
             self._conversations[conversation_key] = result
+            
+            # Save state to database
+            await self._save_state(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                state=result,
+                session=session,
+            )
             
             # Extract the AI response
             ai_response = self._extract_ai_response(result)
@@ -169,18 +177,23 @@ class AgentService:
         thread_ts: str,
         user_id: str,
         session: AsyncSession,
+        user_question: str = "",
     ) -> Optional[SlineState]:
         """
         Get existing conversation state or create new one.
+        
+        Uses LLM-based project classification to determine which project
+        the user is asking about.
         
         Args:
             channel_id: Slack channel ID
             thread_ts: Slack thread timestamp
             user_id: Slack user ID
             session: Database session
+            user_question: The user's question (for project classification)
         
         Returns:
-            SlineState or None if project not found
+            SlineState or None if no projects available
         """
         conversation_key = f"{channel_id}:{thread_ts}"
         
@@ -188,12 +201,41 @@ class AgentService:
         if conversation_key in self._conversations:
             return self._conversations[conversation_key]
         
-        # Look up project for this channel
-        project = await self._get_project_for_channel(channel_id, session)
+        # Try to load from database
+        result = await session.execute(
+            select(ConversationModel).filter(
+                ConversationModel.channel_id == channel_id,
+                ConversationModel.thread_ts == thread_ts,
+            )
+        )
+        conversation = result.scalar_one_or_none()
         
-        if not project:
-            logger.warning(f"No project found for channel {channel_id}")
+        if conversation and conversation.state_json:
+            # Load existing conversation state from database
+            state = self.json_to_state(conversation.state_json)
+            self._conversations[conversation_key] = state
+            logger.info(f"Loaded existing conversation {conversation_key} from database")
+            return state
+        
+        # No existing conversation - create new one
+        # Get all projects for classification
+        all_projects = await self._get_all_projects(session)
+        
+        if not all_projects:
+            logger.warning("No projects configured in the system")
             return None
+        
+        # Use LLM classifier to select the relevant project
+        from .classifier import classify_project
+        from .brain import get_llm_model
+        
+        project = await classify_project(
+            user_question=user_question,
+            projects=all_projects,
+            llm_model=get_llm_model()
+        )
+        
+        logger.info(f"Selected project '{project.name}' for conversation {conversation_key}")
         
         # Get or create workspace
         workspace_path = await self._get_workspace_path(project)
@@ -210,29 +252,25 @@ class AgentService:
         # Cache it
         self._conversations[conversation_key] = state
         
-        logger.info(f"Created new conversation state for {conversation_key}")
+        logger.info(f"Created new conversation state for {conversation_key} using project {project.name}")
         
         return state
     
-    async def _get_project_for_channel(
+    async def _get_all_projects(
         self,
-        channel_id: str,
         session: AsyncSession,
-    ) -> Optional[ProjectModel]:
+    ) -> list[ProjectModel]:
         """
-        Look up project for a Slack channel.
+        Get all available projects.
         
         Args:
-            channel_id: Slack channel ID
             session: Database session
         
         Returns:
-            ProjectModel or None
+            List of ProjectModel instances
         """
-        result = await session.execute(
-            select(ProjectModel).where(ProjectModel.slack_channel_id == channel_id)
-        )
-        return result.scalar_one_or_none()
+        result = await session.execute(select(ProjectModel))
+        return list(result.scalars().all())
     
     async def _get_workspace_path(self, project: ProjectModel) -> str:
         """
@@ -265,6 +303,63 @@ class AgentService:
             logger.info(f"Created workspace at {workspace_path}")
         
         return workspace_path
+    
+    async def _save_state(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        user_id: str,
+        state: SlineState,
+        session: AsyncSession,
+    ) -> None:
+        """
+        Save conversation state to database.
+        
+        Args:
+            channel_id: Slack channel ID
+            thread_ts: Slack thread timestamp
+            user_id: Slack user ID
+            state: SlineState to save
+            session: Database session
+        """
+        try:
+            # Check if conversation exists
+            result = await session.execute(
+                select(ConversationModel).filter(
+                    ConversationModel.channel_id == channel_id,
+                    ConversationModel.thread_ts == thread_ts,
+                )
+            )
+            conversation = result.scalar_one_or_none()
+            
+            # Serialize state
+            state_json = self.state_to_json(state)
+            
+            if conversation:
+                # Update existing conversation
+                conversation.state_json = state_json
+                conversation.update_metadata(user_id)
+                logger.debug(f"Updated conversation {channel_id}:{thread_ts} in database")
+            else:
+                # Create new conversation
+                conversation = ConversationModel(
+                    channel_id=channel_id,
+                    thread_ts=thread_ts,
+                    project_id=UUID(state["project_id"]),
+                    state_json=state_json,
+                    last_user_id=user_id,
+                    message_count=len(state.get("messages", [])),
+                )
+                session.add(conversation)
+                logger.info(f"Created new conversation {channel_id}:{thread_ts} in database")
+            
+            # Commit changes
+            await session.commit()
+            
+        except Exception as e:
+            logger.error(f"Error saving conversation state: {e}", exc_info=True)
+            # Don't raise - we still have in-memory cache
+            await session.rollback()
     
     def _extract_ai_response(self, state: SlineState) -> str:
         """

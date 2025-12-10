@@ -51,7 +51,7 @@ class DashboardService:
         session: AsyncSession
     ) -> ProjectModel:
         """
-        Create a new project mapping.
+        Create a new project.
         
         Args:
             data: Project creation data
@@ -62,6 +62,8 @@ class DashboardService:
         """
         project = ProjectModel(
             tenant_id=data.tenant_id,
+            name=data.name,
+            description=data.description,
             slack_channel_id=data.slack_channel_id,
             repo_url=data.repo_url,
             default_ref=data.default_ref
@@ -71,7 +73,7 @@ class DashboardService:
         await session.commit()
         await session.refresh(project)
         
-        logger.info(f"Created project {project.id} for channel {data.slack_channel_id}")
+        logger.info(f"Created project '{project.name}' ({project.id})")
         return project
     
     async def update_project(
@@ -103,6 +105,12 @@ class DashboardService:
             raise ValueError(f"Project {project_id} not found")
         
         # Update fields if provided
+        if data.name is not None:
+            project.name = data.name
+        if data.description is not None:
+            project.description = data.description
+        if data.slack_channel_id is not None:
+            project.slack_channel_id = data.slack_channel_id
         if data.repo_url is not None:
             project.repo_url = data.repo_url
         if data.default_ref is not None:
