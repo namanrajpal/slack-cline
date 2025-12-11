@@ -20,6 +20,7 @@ from models.project import ProjectModel
 from models.conversation import ConversationModel
 from .state import SlineState, create_initial_state
 from .graph import get_graph
+from .workspace_manager import get_workspace_manager, GitError
 
 logger = get_logger("agent.service")
 
@@ -276,33 +277,28 @@ class AgentService:
         """
         Get the workspace path for a project.
         
-        For MVP, we use the repo URL to create a simple workspace.
-        In production, this would clone the repo.
+        Uses WorkspaceManager to:
+        - Clone repository on first use
+        - Pull latest changes on subsequent uses
         
         Args:
             project: Project model
         
         Returns:
             Absolute path to workspace
+        
+        Raises:
+            GitError: If cloning or pulling fails
         """
-        # Create a workspace directory based on project ID
-        workspace_path = os.path.join(self._workspace_base, str(project.id))
+        workspace_manager = get_workspace_manager()
         
-        # For MVP, just create the directory if it doesn't exist
-        # In production, this would clone the repo
-        if not os.path.exists(workspace_path):
-            os.makedirs(workspace_path)
-            
-            # Create a placeholder README
-            readme_path = os.path.join(workspace_path, "README.md")
-            with open(readme_path, "w") as f:
-                f.write(f"# Workspace for {project.repo_url}\n\n")
-                f.write("This is a placeholder workspace.\n")
-                f.write("In production, this directory would contain the cloned repository.\n")
-            
-            logger.info(f"Created workspace at {workspace_path}")
-        
-        return workspace_path
+        try:
+            workspace_path = await workspace_manager.get_workspace(project)
+            return workspace_path
+        except GitError as e:
+            logger.error(f"Failed to get workspace for {project.name}: {e}")
+            # Re-raise to let caller handle it
+            raise
     
     async def _save_state(
         self,
