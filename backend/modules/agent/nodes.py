@@ -12,6 +12,7 @@ from utils.logging import get_logger
 from .state import SlineState
 from .prompts import get_system_prompt
 from .brain import create_sline_brain
+from .event_types import LangChainEventType
 
 logger = get_logger("agent.nodes")
 
@@ -73,24 +74,54 @@ async def chat_node(state: SlineState) -> dict:
     messages.extend(state["messages"])
     
     try:
-        # Invoke the brain (ReAct agent will handle tool calls automatically)
-        result = await brain.ainvoke({"messages": messages})
+        # Stream events from the brain for real-time logging
+        logger.info("🤖 Initiating LLM request...")
         
-        # Extract the AI's response
-        # The result contains all messages including tool calls and responses
-        response_messages = result.get("messages", [])
-        
-        # Log tool calls for visibility
+        final_state = None
         tool_call_count = 0
-        for msg in response_messages:
-            if isinstance(msg, AIMessage):
-                tool_calls = getattr(msg, 'tool_calls', None)
-                if tool_calls:
-                    for tool_call in tool_calls:
-                        tool_name = tool_call.get('name', 'unknown')
-                        tool_args = tool_call.get('args', {})
-                        logger.info(f"🔧 Tool call: {tool_name}({', '.join(f'{k}={repr(v)}' for k, v in tool_args.items())})")
-                        tool_call_count += 1
+        current_tool_name = None
+        
+        # Use astream_events for real-time event logging
+        async for event in brain.astream_events({"messages": messages}, version="v2"):
+            event_type = event.get("event")
+            event_name = event.get("name", "")
+            event_data = event.get("data", {})
+            
+            # Log LLM request start
+            if event_type == LangChainEventType.CHAT_MODEL_START:
+                logger.info("🤖 LLM processing request...")
+            
+            # Log tool call start
+            elif event_type == LangChainEventType.TOOL_START:
+                current_tool_name = event_name
+                # Get tool input from event data
+                tool_input = event_data.get("input", {})
+                logger.info(f"🔧 Tool call starting: {event_name}({', '.join(f'{k}={repr(v)[:50]}' for k, v in tool_input.items())})")
+                tool_call_count += 1
+            
+            # Log tool call completion
+            elif event_type == LangChainEventType.TOOL_END:
+                if current_tool_name:
+                    logger.info(f"✅ Tool call completed: {current_tool_name}")
+                    current_tool_name = None
+            
+            # Log LLM response completion
+            elif event_type == LangChainEventType.CHAT_MODEL_END:
+                logger.info("🤖 LLM response received")
+            
+            # Capture final state from the last event
+            # The agent graph emits its final state in the last event
+            if event_type == LangChainEventType.CHAIN_END and event_name == "agent":
+                final_state = event_data.get("output", {})
+        
+        # Get response messages from final state
+        if final_state and "messages" in final_state:
+            response_messages = final_state["messages"]
+        else:
+            # Fallback: if we didn't capture state from streaming, call ainvoke
+            logger.warning("Couldn't capture final state from stream, falling back to ainvoke")
+            result = await brain.ainvoke({"messages": messages})
+            response_messages = result.get("messages", [])
         
         if tool_call_count > 0:
             logger.info(f"✅ Agent made {tool_call_count} tool call(s)")
@@ -103,11 +134,21 @@ async def chat_node(state: SlineState) -> dict:
                 break
         
         if ai_response:
-            logger.info(f"💬 Agent response: {ai_response.content[:100]}...")
+            # Handle both string and list content formats (Anthropic streaming returns list)
+            content = ai_response.content
+            if isinstance(content, list):
+                # Extract text from content blocks
+                content = ''.join(
+                    block.get('text', '') if isinstance(block, dict) else str(block)
+                    for block in content
+                )
+            
+            logger.info(f"💬 Agent response: {content[:100]}...")
             
             # Return only the new AI message to be added via add_messages reducer
+            # Ensure content is always a string
             return {
-                "messages": [ai_response],
+                "messages": [AIMessage(content=content)],
                 "mode": "chat",
             }
         else:
@@ -154,9 +195,54 @@ async def plan_node(state: SlineState) -> dict:
     messages.extend(state["messages"])
     
     try:
-        result = await brain.ainvoke({"messages": messages})
+        # Stream events from the brain for real-time logging
+        logger.info("🤖 Initiating LLM request for planning...")
         
-        response_messages = result.get("messages", [])
+        final_state = None
+        tool_call_count = 0
+        current_tool_name = None
+        
+        # Use astream_events for real-time event logging
+        async for event in brain.astream_events({"messages": messages}, version="v2"):
+            event_type = event.get("event")
+            event_name = event.get("name", "")
+            event_data = event.get("data", {})
+            
+            # Log LLM request start
+            if event_type == LangChainEventType.CHAT_MODEL_START:
+                logger.info("🤖 LLM processing planning request...")
+            
+            # Log tool call start
+            elif event_type == LangChainEventType.TOOL_START:
+                current_tool_name = event_name
+                tool_input = event_data.get("input", {})
+                logger.info(f"🔧 Tool call starting: {event_name}({', '.join(f'{k}={repr(v)[:50]}' for k, v in tool_input.items())})")
+                tool_call_count += 1
+            
+            # Log tool call completion
+            elif event_type == LangChainEventType.TOOL_END:
+                if current_tool_name:
+                    logger.info(f"✅ Tool call completed: {current_tool_name}")
+                    current_tool_name = None
+            
+            # Log LLM response completion
+            elif event_type == LangChainEventType.CHAT_MODEL_END:
+                logger.info("🤖 LLM planning response received")
+            
+            # Capture final state
+            if event_type == LangChainEventType.CHAIN_END and event_name == "agent":
+                final_state = event_data.get("output", {})
+        
+        # Get response messages from final state
+        if final_state and "messages" in final_state:
+            response_messages = final_state["messages"]
+        else:
+            logger.warning("Couldn't capture final state from stream, falling back to ainvoke")
+            result = await brain.ainvoke({"messages": messages})
+            response_messages = result.get("messages", [])
+        
+        if tool_call_count > 0:
+            logger.info(f"✅ Planning agent made {tool_call_count} tool call(s)")
         
         # Find the final AI message with the plan
         ai_response = None
@@ -166,11 +252,19 @@ async def plan_node(state: SlineState) -> dict:
                 break
         
         if ai_response:
+            # Handle both string and list content formats
             plan_text = ai_response.content
+            if isinstance(plan_text, list):
+                # Extract text from content blocks
+                plan_text = ''.join(
+                    block.get('text', '') if isinstance(block, dict) else str(block)
+                    for block in plan_text
+                )
+            
             logger.info(f"plan_node generated plan: {plan_text[:100]}...")
             
             return {
-                "messages": [ai_response],
+                "messages": [AIMessage(content=plan_text)],
                 "mode": "awaiting_approval",
                 "plan": plan_text,
             }
@@ -226,9 +320,54 @@ async def execute_node(state: SlineState) -> dict:
     messages.extend(state["messages"])
     
     try:
-        result = await brain.ainvoke({"messages": messages})
+        # Stream events from the brain for real-time logging
+        logger.info("🤖 Initiating LLM request for execution...")
         
-        response_messages = result.get("messages", [])
+        final_state = None
+        tool_call_count = 0
+        current_tool_name = None
+        
+        # Use astream_events for real-time event logging
+        async for event in brain.astream_events({"messages": messages}, version="v2"):
+            event_type = event.get("event")
+            event_name = event.get("name", "")
+            event_data = event.get("data", {})
+            
+            # Log LLM request start
+            if event_type == LangChainEventType.CHAT_MODEL_START:
+                logger.info("🤖 LLM processing execution request...")
+            
+            # Log tool call start
+            elif event_type == LangChainEventType.TOOL_START:
+                current_tool_name = event_name
+                tool_input = event_data.get("input", {})
+                logger.info(f"🔧 Tool call starting: {event_name}({', '.join(f'{k}={repr(v)[:50]}' for k, v in tool_input.items())})")
+                tool_call_count += 1
+            
+            # Log tool call completion
+            elif event_type == LangChainEventType.TOOL_END:
+                if current_tool_name:
+                    logger.info(f"✅ Tool call completed: {current_tool_name}")
+                    current_tool_name = None
+            
+            # Log LLM response completion
+            elif event_type == LangChainEventType.CHAT_MODEL_END:
+                logger.info("🤖 LLM execution response received")
+            
+            # Capture final state
+            if event_type == LangChainEventType.CHAIN_END and event_name == "agent":
+                final_state = event_data.get("output", {})
+        
+        # Get response messages from final state
+        if final_state and "messages" in final_state:
+            response_messages = final_state["messages"]
+        else:
+            logger.warning("Couldn't capture final state from stream, falling back to ainvoke")
+            result = await brain.ainvoke({"messages": messages})
+            response_messages = result.get("messages", [])
+        
+        if tool_call_count > 0:
+            logger.info(f"✅ Execution agent made {tool_call_count} tool call(s)")
         
         ai_response = None
         for msg in reversed(response_messages):
@@ -237,10 +376,19 @@ async def execute_node(state: SlineState) -> dict:
                 break
         
         if ai_response:
-            logger.info(f"execute_node completed: {ai_response.content[:100]}...")
+            # Handle both string and list content formats
+            content = ai_response.content
+            if isinstance(content, list):
+                # Extract text from content blocks
+                content = ''.join(
+                    block.get('text', '') if isinstance(block, dict) else str(block)
+                    for block in content
+                )
+            
+            logger.info(f"execute_node completed: {content[:100]}...")
             
             return {
-                "messages": [ai_response],
+                "messages": [AIMessage(content=content)],
                 "mode": "completed",
                 "plan": None,  # Clear plan after execution
             }
