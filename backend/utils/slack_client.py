@@ -14,6 +14,7 @@ from slack_sdk.errors import SlackApiError
 
 from config import settings
 from utils.logging import get_logger, log_slack_event
+from utils.slack_formatter import format_message_safely
 
 logger = get_logger("slack.client")
 
@@ -70,10 +71,13 @@ class SlackClient:
             logger.warning("Slack client not configured, skipping message post")
             return {"ok": False, "error": "client_not_configured"}
         
+        # Format text for Slack mrkdwn (convert Markdown → mrkdwn)
+        formatted_text = format_message_safely(text)
+        
         try:
             response = self.client.chat_postMessage(
                 channel=channel,
-                text=text,
+                text=formatted_text,
                 blocks=blocks,
                 thread_ts=thread_ts
             )
@@ -122,11 +126,14 @@ class SlackClient:
             logger.warning("Slack client not configured, skipping message update")
             return {"ok": False, "error": "client_not_configured"}
         
+        # Format text for Slack mrkdwn (convert Markdown → mrkdwn)
+        formatted_text = format_message_safely(text)
+        
         try:
             response = self.client.chat_update(
                 channel=channel,
                 ts=ts,
-                text=text,
+                text=formatted_text,
                 blocks=blocks
             )
             

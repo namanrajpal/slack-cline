@@ -1,13 +1,10 @@
 ## Brief overview
 
-Project-specific rules for developing slack-cline, a Slack bot that integrates Cline's AI coding capabilities via CLI subprocess calls. The primary goal is Slack integration, with the dashboard serving as a testing and debugging tool.
+Project-specific rules for developing slack-cline, a conversational AI coding teammate built with a native Python LangGraph agent. Users interact via natural @mentions in Slack, with the dashboard serving as a testing and debugging tool.
 
 ## Service management
 
 - Never automatically start or restart Docker services (docker-compose) or frontend dev server (npm run dev)
-- Always ask the user to run these commands themselves
-- When changes require a restart, inform the user and provide the exact command to run
-- Example: "Please restart the backend: `docker-compose restart backend`"
 
 ## Tech stack preferences
 
@@ -20,11 +17,14 @@ Project-specific rules for developing slack-cline, a Slack bot that integrates C
 
 ## Architecture patterns
 
-- Modular backend structure: separate modules for concerns (slack_gateway, orchestrator, execution_engine, dashboard)
-- CLI subprocess integration over gRPC (proven pattern from GitHub Actions)
-- Direct function calls when possible instead of internal HTTP requests to avoid stream consumption issues
+- Native LangGraph agent architecture using ReAct pattern
+- Conversational model: each Slack thread is a persistent conversation
+- Agent service manages conversation state and LangGraph invocation
+- Tools bound to workspace paths for clean LLM interface
+- Modular backend structure: separate modules for concerns (slack_gateway, agent, dashboard)
 - Service layer pattern: routes call services, services handle business logic
 - Singleton services with dependency injection
+- State persistence via PostgreSQL (state_json field in conversations table)
 
 ## Slack-first development approach
 
@@ -61,18 +61,20 @@ Project-specific rules for developing slack-cline, a Slack bot that integrates C
 
 ## Documentation standards
 
-- Create comprehensive guides (GETTING_STARTED, feature guides, debugging guides)
+- Follow documentation guidelines in `.clinerules/documentation-standards.md`
+- Place new docs in `docs/` with proper hierarchy (getting-started/, user-guide/, architecture/, development/)
+- Create implementation plans in `docs/implementation-plans/` before major features
+- Update `docs/README.md` index when adding new documentation
 - Include both dashboard and Slack workflows
 - Provide troubleshooting sections with common issues and solutions
-- Include quick reference commands
-- Emphasize E2E testing workflows
 
 ## Testing approach
 
 - Dashboard testing before Slack integration
-- Use Admin Panel to simulate Slack commands
-- Verify in database and Runs page
-- Check backend logs for detailed execution trace
+- Use Admin Panel to simulate @mention conversations
+- Verify in database (conversations table with state_json)
+- Check backend logs for detailed agent execution trace (tool calls, LLM responses)
+- Test conversation continuity (multi-turn interactions with memory)
 - Test both dashboard flow and Slack flow independently
 
 ## API design
