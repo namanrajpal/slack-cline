@@ -1,11 +1,140 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: ["class"],
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
+    extend: {
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        // Custom color palette
+        black: {
+          50: "#f4f2f1",
+          100: "#e8e6e3",
+          200: "#d2ccc6",
+          300: "#bbb3aa",
+          400: "#a4998e",
+          500: "#8e8071",
+          600: "#71665b",
+          700: "#554d44",
+          800: "#39332d",
+          900: "#1c1a17",
+          950: "#141210",
+        },
+        "jet-black": {
+          50: "#eff4f6",
+          100: "#dfe8ec",
+          200: "#bed1da",
+          300: "#9ebac7",
+          400: "#7da3b5",
+          500: "#5d8ca2",
+          600: "#4a7082",
+          700: "#385461",
+          800: "#253841",
+          900: "#131c20",
+          950: "#0d1417",
+        },
+        "white-smoke": {
+          50: "#f1f3f2",
+          100: "#e3e8e6",
+          200: "#c8d0cc",
+          300: "#acb9b3",
+          400: "#91a199",
+          500: "#758a80",
+          600: "#5e6e66",
+          700: "#46534d",
+          800: "#2f3733",
+          900: "#171c1a",
+          950: "#101312",
+        },
+        "dusty-taupe": {
+          50: "#f5f2f0",
+          100: "#ebe5e0",
+          200: "#d6ccc2",
+          300: "#c2b2a3",
+          400: "#ad9885",
+          500: "#997f66",
+          600: "#7a6552",
+          700: "#5c4c3d",
+          800: "#3d3329",
+          900: "#1f1914",
+          950: "#15120e",
+        },
+        "stone-brown": {
+          50: "#f5f3f0",
+          100: "#ebe6e0",
+          200: "#d6cdc2",
+          300: "#c2b4a3",
+          400: "#ad9b85",
+          500: "#998266",
+          600: "#7a6852",
+          700: "#5c4e3d",
+          800: "#3d3429",
+          900: "#1f1a14",
+          950: "#15120e",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+      },
+    },
   },
-  plugins: [],
+  plugins: [require("tailwindcss-animate")],
 }

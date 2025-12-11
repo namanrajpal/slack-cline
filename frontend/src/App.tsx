@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import Layout from './components/Layout';
+import AppShell from './components/AppShell';
 import Dashboard from './pages/Dashboard';
 import Projects from './pages/Projects';
 import Runs from './pages/Runs';
@@ -10,7 +10,7 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Layout />}>
+        <Route path="/" element={<AppShell />}>
           <Route index element={<Dashboard />} />
           <Route path="projects" element={<Projects />} />
           <Route path="runs" element={<Runs />} />

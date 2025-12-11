@@ -3,7 +3,9 @@
 export interface Project {
   id: string;
   tenant_id: string;
-  slack_channel_id: string;
+  name: string;                    // Project name (unique identifier)
+  description?: string;            // Project description for LLM classification
+  slack_channel_id?: string;       // Optional - for backwards compatibility
   repo_url: string;
   default_ref: string;
   created_at: string;

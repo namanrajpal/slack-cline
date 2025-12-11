@@ -53,7 +53,7 @@ export default function AdminPanel() {
       const data = await apiClient.getProjects();
       setProjects(data);
       if (data.length > 0 && !formData.channel_id) {
-        setFormData(prev => ({ ...prev, channel_id: data[0].slack_channel_id }));
+        setFormData(prev => ({ ...prev, channel_id: data[0].slack_channel_id || '' }));
       }
     } catch (err) {
       console.error('Failed to load projects:', err);
