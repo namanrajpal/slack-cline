@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, TrendingUp, DollarSign, Activity } from 'lucide-react';
+import { ExternalLink, TrendingUp, DollarSign, Activity, Star, GitFork, Circle } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../api/client';
 import type { Project, Run } from '../types';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface GitHubRepoStats {
+  stargazers_count: number;
+  forks_count: number;
+  language: string | null;
+  updated_at: string;
+}
 
 // Mock data generator
 const generateMockData = (days: number, type: 'runs' | 'cost') => {
@@ -35,6 +43,7 @@ export default function Dashboard() {
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [githubStats, setGithubStats] = useState<Map<string, GitHubRepoStats>>(new Map());
   
   // Monitor card state
   const [metricType, setMetricType] = useState<'runs' | 'cost'>('runs');
@@ -63,12 +72,62 @@ export default function Dashboard() {
       
       setProjects(projectsData);
       setRecentRuns(runsData);
+
+      // Fetch GitHub stats for each project
+      const statsMap = new Map<string, GitHubRepoStats>();
+      for (const project of projectsData) {
+        try {
+          const stats = await fetchGitHubStats(project.repo_url);
+          if (stats) {
+            statsMap.set(project.id, stats);
+          }
+        } catch (err) {
+          console.error(`Failed to fetch GitHub stats for ${project.repo_url}`, err);
+        }
+      }
+      setGithubStats(statsMap);
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error(err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchGitHubStats = async (repoUrl: string): Promise<GitHubRepoStats | null> => {
+    try {
+      // Extract owner and repo from GitHub URL
+      const match = repoUrl.match(/github\.com[:/]([^/]+)\/([^/.]+)/);
+      if (!match) return null;
+      
+      const [, owner, repo] = match;
+      const response = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+      
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      return {
+        stargazers_count: data.stargazers_count || 0,
+        forks_count: data.forks_count || 0,
+        language: data.language || null,
+        updated_at: data.updated_at || new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('Error fetching GitHub stats:', err);
+      return null;
+    }
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    
+    if (diffInSeconds < 60) return 'just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return `${Math.floor(diffInSeconds / 2592000)}mo ago`;
   };
 
   if (loading) {
@@ -93,61 +152,27 @@ export default function Dashboard() {
     );
   }
 
-  const activeRuns = recentRuns.filter(r => r.status === 'running' || r.status === 'queued');
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Dashboard</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Overview of your Sline projects and runs
-        </p>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
-        <div className="bg-card overflow-hidden shadow-sm rounded-lg border border-border">
-          <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-muted-foreground truncate">
-              Total Projects
-            </dt>
-            <dd className="mt-1 text-3xl font-semibold text-foreground">
-              {projects.length}
-            </dd>
-          </div>
-        </div>
-
-        <div className="bg-card overflow-hidden shadow-sm rounded-lg border border-border">
-          <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-muted-foreground truncate">
-              Active Runs
-            </dt>
-            <dd className="mt-1 text-3xl font-semibold text-primary">
-              {activeRuns.length}
-            </dd>
-          </div>
-        </div>
-
-        <div className="bg-card overflow-hidden shadow-sm rounded-lg border border-border">
-          <div className="px-4 py-5 sm:p-6">
-            <dt className="text-sm font-medium text-muted-foreground truncate">
-              Total Runs
-            </dt>
-            <dd className="mt-1 text-3xl font-semibold text-foreground">
-              {recentRuns.length}
-            </dd>
-          </div>
-        </div>
-      </div>
-
       {/* Your Projects */}
-      <div className="bg-card shadow-sm rounded-lg border border-border">
-        <div className="px-4 py-5 sm:p-6">
-          <h3 className="text-lg font-medium text-foreground mb-4">
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-foreground">
             Your Projects
           </h3>
-          {projects.length === 0 ? (
-            <div className="text-center py-6">
+          <Link
+            to="/projects"
+            className="text-sm text-primary hover:text-primary/80 font-medium"
+          >
+            View all →
+          </Link>
+        </div>
+        
+        {projects.length === 0 ? (
+          <Card>
+            <CardContent className="text-center py-12">
+              <SiGithub className="mx-auto mb-4 opacity-50 text-foreground" size={48} />
               <p className="text-muted-foreground mb-4">No projects configured yet</p>
               <Link
                 to="/projects"
@@ -155,32 +180,72 @@ export default function Dashboard() {
               >
                 Create Project
               </Link>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {projects.slice(0, 5).map((project) => (
-                <a
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {projects.slice(0, 6).map((project) => {
+              const stats = githubStats.get(project.id);
+              return (
+                <Card
                   key={project.id}
-                  href={project.repo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-between p-3 bg-muted/50 rounded-md border border-border hover:border-primary/50 hover:bg-muted/70 transition-all group"
+                  className="hover:shadow-lg hover:border-primary/50 transition-all group cursor-pointer"
                 >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <SiGithub color="#181717" size={20} className="flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-foreground group-hover:text-primary transition-colors">
-                        {project.name}
-                      </p>
-                      <p className="text-sm text-muted-foreground truncate">{project.repo_url}</p>
-                    </div>
-                  </div>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
+                  <a
+                    href={project.repo_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <CardHeader className="pb-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-2">
+                          <SiGithub className="flex-shrink-0 text-foreground opacity-70" size={20} />
+                          <CardTitle className="text-base font-semibold group-hover:text-primary transition-colors">
+                            {project.name}
+                          </CardTitle>
+                        </div>
+                        <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                      {project.description && (
+                        <CardDescription className="line-clamp-2">
+                          {project.description}
+                        </CardDescription>
+                      )}
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        {stats && (
+                          <>
+                            <div className="flex items-center gap-1">
+                              <Star className="h-3.5 w-3.5" />
+                              <span>{stats.stargazers_count}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <GitFork className="h-3.5 w-3.5" />
+                              <span>{stats.forks_count}</span>
+                            </div>
+                            {stats.language && (
+                              <div className="flex items-center gap-1">
+                                <Circle className="h-2 w-2 fill-current" />
+                                <span>{stats.language}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {stats && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          Updated {formatTimeAgo(stats.updated_at)}
+                        </div>
+                      )}
+                    </CardContent>
+                  </a>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Monitor Card */}

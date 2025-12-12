@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderGit2, Play, Settings } from 'lucide-react';
+import { LayoutDashboard, FolderGit2, Settings, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ThemeSwitcher from './ThemeSwitcher';
 
 export default function Sidebar() {
   const location = useLocation();
@@ -12,7 +13,7 @@ export default function Sidebar() {
   const navItems = [
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/projects', label: 'Projects', icon: FolderGit2 },
-    { path: '/runs', label: 'Runs', icon: Play },
+    { path: '/integrations', label: 'Integrations', icon: Puzzle },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
@@ -63,12 +64,15 @@ export default function Sidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="flex-shrink-0 flex border-t border-border p-4">
-          <div className="flex items-center w-full">
+        <div className="flex-shrink-0 border-t border-border">
+          <div className="flex items-center justify-between p-4">
             <div>
               <p className="text-xs font-medium text-foreground">Sline Agent</p>
               <p className="text-xs text-muted-foreground">Coding teammate</p>
             </div>
+          </div>
+          <div className="px-2 pb-3">
+            <ThemeSwitcher />
           </div>
         </div>
       </div>

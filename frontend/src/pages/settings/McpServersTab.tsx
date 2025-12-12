@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -8,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertCircle, Plus, Server } from 'lucide-react';
 
 export default function McpServersTab() {
+  const navigate = useNavigate();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newServer, setNewServer] = useState({
     name: '',
@@ -25,6 +27,10 @@ export default function McpServersTab() {
       auth_method: 'none',
       auth_config: {},
     });
+  };
+
+  const handleNavigateToIntegrations = () => {
+    navigate('/integrations', { state: { scrollTo: 'mcp-servers' } });
   };
 
   return (
@@ -54,11 +60,14 @@ export default function McpServersTab() {
                 Manage Model Context Protocol servers for extended capabilities
               </CardDescription>
             </div>
+            <Button onClick={handleNavigateToIntegrations}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add MCP Server
+            </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={resetForm}>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add MCP Server
+                <Button variant="outline" onClick={resetForm} className="hidden">
+                  Configure Server
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl">

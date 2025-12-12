@@ -64,6 +64,36 @@
     --input: 25 13% 20%;
     --ring: 198 28% 60%;
   }
+
+  .colorful {
+    --background: 35 80% 98%; /* peach-glow-50 */
+    --foreground: 110 50% 15%; /* dry-sage-900 */
+
+    --card: 0 0% 100%; /* white */
+    --card-foreground: 110 50% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 110 50% 15%;
+
+    --primary: 25 75% 50%; /* peach-glow-500 - main accent */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 90 65% 50%; /* frosted-mint-500 - fresh accent */
+    --secondary-foreground: 110 50% 15%;
+
+    --muted: 90 55% 95%; /* frosted-mint-50 */
+    --muted-foreground: 110 20% 50%;
+
+    --accent: 90 65% 50%; /* frosted-mint-500 */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 35 50% 85%; /* peach-glow-100 */
+    --input: 35 50% 85%;
+    --ring: 25 75% 50%;
+  }
 }
 
 @layer base {
