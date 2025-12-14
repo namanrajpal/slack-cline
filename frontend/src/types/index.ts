@@ -55,6 +55,7 @@ export interface TestSlackResponse {
 
 export interface ProjectCreate {
   tenant_id?: string;
+  name: string;
   slack_channel_id: string;
   repo_url: string;
   default_ref?: string;

@@ -8,6 +8,7 @@ export default function Projects() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<ProjectCreate>({
+    name: '',
     slack_channel_id: '',
     repo_url: '',
     default_ref: 'main'
@@ -36,7 +37,7 @@ export default function Projects() {
     try {
       await apiClient.createProject(formData);
       setShowForm(false);
-      setFormData({ slack_channel_id: '', repo_url: '', default_ref: 'main' });
+      setFormData({ name: '', slack_channel_id: '', repo_url: '', default_ref: 'main' });
       loadProjects();
     } catch (err) {
       alert('Failed to create project');
@@ -87,6 +88,19 @@ export default function Projects() {
         <div className="bg-white shadow rounded-lg p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Create New Project</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">
+                Project Name
+              </label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                placeholder="My Project"
+                required
+              />
+            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">
                 Slack Channel ID
@@ -141,6 +155,9 @@ export default function Projects() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Project Name
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Channel ID
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -164,6 +181,9 @@ export default function Projects() {
             ) : (
               projects.map((project) => (
                 <tr key={project.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {project.name}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                     {project.slack_channel_id}
                   </td>
