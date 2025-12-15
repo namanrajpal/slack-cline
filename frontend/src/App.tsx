@@ -5,6 +5,7 @@ import Projects from './pages/Projects';
 import Integrations from './pages/Integrations';
 import AdminPanel from './pages/AdminPanel';
 import Settings from './pages/Settings';
+import Docs from './pages/Docs';
 
 function App() {
   return (
@@ -17,6 +18,8 @@ function App() {
           <Route path="admin" element={<AdminPanel />} />
           <Route path="settings" element={<Settings />} />
         </Route>
+        {/* Docs routes - separate from AppShell for custom layout */}
+        <Route path="docs/*" element={<Docs />} />
       </Routes>
     </BrowserRouter>
   );

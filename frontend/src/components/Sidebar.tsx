@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FolderGit2, Settings, Puzzle } from 'lucide-react';
+import { LayoutDashboard, FolderGit2, Settings, Puzzle, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ThemeSwitcher from './ThemeSwitcher';
 
@@ -14,6 +14,7 @@ export default function Sidebar() {
     { path: '/', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/projects', label: 'Projects', icon: FolderGit2 },
     { path: '/integrations', label: 'Integrations', icon: Puzzle },
+    { path: '/docs', label: 'Documentation', icon: BookOpen },
     { path: '/settings', label: 'Settings', icon: Settings },
   ];
 
