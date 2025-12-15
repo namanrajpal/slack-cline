@@ -6,13 +6,35 @@
  * - Chat state: transcript above with sticky input at bottom
  * - Controlled auto-scroll (only when near bottom)
  * - Robust SSE streaming
+ * - Polished composer with blocks.so patterns
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Send, ArrowDown, Sparkles, Code, FileSearch, Bug } from 'lucide-react';
+import { 
+  ArrowDown, 
+  Sparkles, 
+  Code, 
+  FileSearch, 
+  Bug, 
+  ArrowUp,
+  Plus,
+  Paperclip,
+  Link,
+  Clipboard,
+  FileText,
+  Settings2,
+  Loader2
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { useChatStream } from '@/hooks/useChatStream';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
@@ -194,12 +216,12 @@ export default function Chat() {
 
   // Render chat transcript
   const renderTranscript = () => (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Messages area */}
+    <div className="flex flex-col min-h-[calc(100vh-6rem)]">
+      {/* Messages area - scrollable */}
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto pb-32"
+        className="flex-1 overflow-y-auto pb-28"
       >
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {messages.map((message) => (
@@ -209,9 +231,9 @@ export default function Chat() {
         </div>
       </div>
 
-      {/* Scroll to bottom button */}
+      {/* Scroll to bottom button - fixed position */}
       {!isAtBottom && mode === 'chat' && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-10">
+        <div className="fixed bottom-28 left-1/2 md:left-[calc(50%+8rem)] -translate-x-1/2 z-20">
           <Button
             variant="secondary"
             size="sm"
@@ -224,8 +246,8 @@ export default function Chat() {
         </div>
       )}
 
-      {/* Sticky input - fixed at bottom */}
-      <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      {/* Input area - fixed at viewport bottom with sidebar offset */}
+      <div className="fixed bottom-0 left-0 md:left-64 right-0 z-10 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="max-w-3xl mx-auto px-4 py-4">
           {renderComposer()}
         </div>
@@ -233,9 +255,13 @@ export default function Chat() {
     </div>
   );
 
-  // Render composer (input area)
+  // Render composer (input area) - blocks.so polished styling
   const renderComposer = () => (
-    <div className="relative">
+    <form 
+      onSubmit={(e) => { e.preventDefault(); handleSend(); }}
+      className="overflow-visible rounded-xl border p-2 transition-colors duration-200 focus-within:border-ring bg-card"
+    >
+      {/* Text input */}
       <Textarea
         ref={inputRef}
         value={inputValue}
@@ -244,22 +270,102 @@ export default function Chat() {
         placeholder="Ask about your code..."
         disabled={isLoading}
         className={cn(
-          'min-h-[52px] max-h-[200px] resize-none pr-12 py-3',
-          'bg-muted/50 border-border',
-          'focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:border-border',
+          'max-h-[200px] min-h-[48px] resize-none rounded-none border-none bg-transparent p-0 text-sm shadow-none',
+          'focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
           'placeholder:text-muted-foreground/60'
         )}
         rows={1}
       />
-      <Button
-        onClick={handleSend}
-        disabled={isLoading || !inputValue.trim()}
-        size="icon"
-        className="absolute right-2 bottom-2 h-8 w-8 rounded-md"
-      >
-        <Send className="h-4 w-4" />
-      </Button>
-    </div>
+
+      {/* Bottom toolbar */}
+      <div className="flex items-center gap-1 pt-1">
+        {/* Left side - action buttons */}
+        <div className="flex items-center gap-0.5">
+          {/* Plus dropdown for future features */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="h-7 w-7 rounded-md"
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="w-48 rounded-xl p-1.5"
+            >
+              <DropdownMenuGroup className="space-y-1">
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <Paperclip className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Attach Files</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <Link className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Import from URL</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <Clipboard className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Paste from Clipboard</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <FileText className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Use Template</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Settings dropdown for future features */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="h-7 w-7 rounded-md"
+                size="icon"
+                type="button"
+                variant="ghost"
+              >
+                <Settings2 className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="w-48 rounded-xl p-1.5"
+            >
+              <DropdownMenuGroup className="space-y-1">
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <Sparkles className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Auto-complete</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="rounded-lg text-xs cursor-pointer">
+                  <Settings2 className="h-4 w-4 mr-2 text-muted-foreground" />
+                  <span>Advanced Settings</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Right side - send button */}
+        <div className="ml-auto flex items-center gap-1">
+          <Button
+            className="h-7 w-7 rounded-md"
+            disabled={isLoading || !inputValue.trim()}
+            size="icon"
+            type="submit"
+            variant="default"
+          >
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ArrowUp className="h-4 w-4" />
+            )}
+          </Button>
+        </div>
+      </div>
+    </form>
   );
 
   return (
