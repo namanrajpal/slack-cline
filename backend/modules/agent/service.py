@@ -8,7 +8,7 @@ Handles conversation state management and graph invocation.
 import json
 import os
 from typing import Optional, AsyncIterator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from langchain_core.messages import HumanMessage, AIMessage, BaseMessage
 from sqlalchemy import select
@@ -124,6 +124,110 @@ class AgentService:
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
             return f"❌ Sline encountered an error: {str(e)}"
+    
+    async def handle_message_streaming(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        user_id: str,
+        text: str,
+        session: AsyncSession,
+    ) -> AsyncIterator:
+        """
+        Handle incoming message with AG-UI event streaming.
+        
+        This method is used by CopilotKit/Dashboard for real-time streaming.
+        Uses astream_events() instead of ainvoke() for token-by-token streaming.
+        
+        Args:
+            channel_id: Channel ID (or "dashboard" for Dashboard)
+            thread_ts: Thread timestamp (conversation ID / UUID)
+            user_id: User ID
+            text: Message text
+            session: Database session
+        
+        Yields:
+            AGUIEvent instances for SSE streaming
+        """
+        from modules.chat.event_translator import stream_agui_events
+        from schemas.agui import RunErrorEvent
+        
+        conversation_key = f"{channel_id}:{thread_ts}"
+        
+        logger.info(f"Handling streaming message for {conversation_key}: {text[:50]}...")
+        
+        try:
+            # Get or create conversation state
+            state = await self._get_or_create_state(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                session=session,
+                user_question=text,
+            )
+            
+            if state is None:
+                # No projects configured - yield error event
+                run_id = str(uuid4())
+                yield RunErrorEvent(
+                    thread_id=thread_ts,
+                    run_id=run_id,
+                    error="No projects configured. Please add projects first."
+                )
+                return
+            
+            # Add the user message to state
+            user_message = HumanMessage(content=text)
+            state["messages"].append(user_message)
+            state["user_id"] = user_id
+            
+            # Calculate message index for stable ID generation
+            message_index = len([m for m in state["messages"] if isinstance(m, AIMessage)])
+            
+            # Get the graph
+            graph = get_graph()
+            
+            # Generate run ID
+            run_id = str(uuid4())
+            
+            # Stream AG-UI events
+            # Note: stream_agui_events() wraps graph.astream_events() which
+            # executes the graph and streams events. We don't need to re-invoke.
+            async for agui_event in stream_agui_events(
+                graph=graph,
+                state=state,
+                thread_id=thread_ts,
+                run_id=run_id,
+                message_index=message_index,
+            ):
+                yield agui_event
+            
+            # After streaming, the state has been modified by the graph execution.
+            # We use the modified state (which has the new AI message added by the graph).
+            # The graph modifies state in-place during astream_events().
+            
+            # Update cached state
+            self._conversations[conversation_key] = state
+            
+            # Save state to database
+            await self._save_state(
+                channel_id=channel_id,
+                thread_ts=thread_ts,
+                user_id=user_id,
+                state=state,
+                session=session,
+            )
+            
+            logger.info(f"Completed streaming for {conversation_key}")
+            
+        except Exception as e:
+            logger.error(f"Error in streaming handler: {e}", exc_info=True)
+            run_id = str(uuid4())
+            yield RunErrorEvent(
+                thread_id=thread_ts,
+                run_id=run_id,
+                error=str(e)
+            )
     
     async def handle_approval(
         self,

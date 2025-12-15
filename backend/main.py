@@ -16,6 +16,7 @@ from config import settings
 from database import create_tables
 from modules.slack_gateway.handlers import slack_router
 from modules.dashboard.routes import router as dashboard_router
+from modules.chat.routes import router as chat_router
 from utils.logging import setup_logging
 
 # Reduce Slack SDK and LangChain HTTP verbosity
@@ -97,6 +98,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(slack_router, prefix="/slack", tags=["slack"])
 app.include_router(dashboard_router, prefix="/api", tags=["dashboard"])
+app.include_router(chat_router, prefix="/api/chat", tags=["chat"])
 
 
 if __name__ == "__main__":

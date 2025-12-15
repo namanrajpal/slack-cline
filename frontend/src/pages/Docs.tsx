@@ -1,4 +1,4 @@
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import DocsSidebar from '@/components/DocsSidebar';
 import MarkdownRenderer from '@/components/MarkdownRenderer';
 import { getDocContent } from '@/utils/docsLoader';

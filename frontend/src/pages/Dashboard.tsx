@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, TrendingUp, DollarSign, Activity, Star, GitFork, Circle } from 'lucide-react';
+import { ExternalLink, TrendingUp, DollarSign, Activity, Star, GitFork, Circle, MessageSquare, ArrowRight } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiClient } from '../api/client';
-import type { Project, Run } from '../types';
+import type { Project } from '../types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 interface GitHubRepoStats {
   stargazers_count: number;
@@ -40,7 +41,7 @@ const generateMockData = (days: number, type: 'runs' | 'cost') => {
 
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [recentRuns, setRecentRuns] = useState<Run[]>([]);
+  // const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [githubStats, setGithubStats] = useState<Map<string, GitHubRepoStats>>(new Map());
@@ -65,13 +66,12 @@ export default function Dashboard() {
       setLoading(true);
       setError(null);
       
-      const [projectsData, runsData] = await Promise.all([
+      const [projectsData] = await Promise.all([
         apiClient.getProjects(),
         apiClient.getRuns({ limit: 10 }),
       ]);
       
       setProjects(projectsData);
-      setRecentRuns(runsData);
 
       // Fetch GitHub stats for each project
       const statsMap = new Map<string, GitHubRepoStats>();
@@ -155,6 +155,31 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Chat CTA Card */}
+      <Card className="bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 border-primary/20">
+        <CardContent className="p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <MessageSquare className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Chat with Sline</h3>
+                <p className="text-sm text-muted-foreground">
+                  Ask questions about your codebase, get help debugging, or refactor code
+                </p>
+              </div>
+            </div>
+            <Link to="/chat">
+              <Button className="gap-2">
+                Start Chat
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Your Projects */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -391,18 +416,12 @@ export default function Dashboard() {
       <div className="bg-gradient-to-r from-primary to-primary/80 shadow-sm rounded-lg border border-border">
         <div className="px-4 py-5 sm:p-6">
           <h3 className="text-lg font-medium text-primary-foreground mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Link
               to="/projects"
               className="bg-primary-foreground/20 hover:bg-primary-foreground/30 text-primary-foreground rounded-md px-4 py-3 text-center font-medium transition border border-primary-foreground/20"
             >
               Manage Projects
-            </Link>
-            <Link
-              to="/admin"
-              className="bg-primary-foreground/20 hover:bg-primary-foreground/30 text-primary-foreground rounded-md px-4 py-3 text-center font-medium transition border border-primary-foreground/20"
-            >
-              Test Integration
             </Link>
             <Link
               to="/settings"
