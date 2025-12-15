@@ -273,3 +273,272 @@ All documentation is now:
 ---
 
 *This migration ensures Sline's documentation accurately reflects the current implementation and provides a solid foundation for future growth.* 🎉
+
+---
+
+# Documentation Update - December 2024
+
+**Date:** December 14, 2025  
+**Status:** ✅ Complete
+
+## 🎯 What Was Updated
+
+Updated Sline documentation to accurately reflect the current dashboard implementation with new features (Integrations, 4-tab Settings, MCP servers, Rules) and remove references to outdated "Runs" page concept.
+
+---
+
+## 📝 Files Updated
+
+### Documentation Files
+
+1. **docs/user-guide/dashboard.md** - Complete rewrite
+   - Added: Home Dashboard with GitHub project cards and Monitor charts
+   - Added: Integrations page documentation
+   - Added: Admin Panel deep dive
+   - Added: 4-tab Settings structure (Providers, Agent, MCP Servers, Advanced)
+   - Removed: References to "Runs" page
+   - Added: Comprehensive workflows and troubleshooting
+
+2. **docs/user-guide/integrations.md** - NEW FILE
+   - MCP Servers documentation (filesystem, git, HTTP, database, custom)
+   - Authentication methods
+   - Rules system (coming soon)
+   - API integrations (coming soon)
+   - Security best practices
+
+3. **docs/user-guide/conversations.md** - NEW FILE
+   - Conversation model vs Run model comparison
+   - Conversation lifecycle documentation
+   - Database structure details
+   - Testing with Admin Panel
+   - Conversation modes (chat, planning, executing)
+   - Troubleshooting guide
+
+4. **docs/getting-started/quickstart.md** - Updated
+   - Settings section now mentions 4 tabs
+   - Added note about Providers, Agent, MCP Servers, Advanced tabs
+
+5. **docs/README.md** - Updated
+   - Fixed broken links (commented out non-existent files)
+   - Added new documentation files (integrations.md, conversations.md)
+   - Reorganized "Available" vs "Coming Soon" sections
+   - Updated GitHub repository links
+
+### Code Files
+
+6. **backend/models/run.py** - Added deprecation notice
+   - Clear warning that RunModel is deprecated
+   - Directs developers to use ConversationModel instead
+   - Links to conversations documentation
+
+7. **frontend/src/pages/Runs.tsx** - Added UI deprecation banner
+   - Yellow warning banner at top of page
+   - Explains conversation model vs run model
+   - Links to Conversations Guide documentation
+
+---
+
+## 🔄 What Changed
+
+### Major Updates
+
+#### 1. Dashboard Documentation
+**Before:**
+- Referenced non-existent "Runs" page
+- Missing documentation for Integrations hub
+- Outdated Settings structure (single page)
+- No Admin Panel details
+
+**After:**
+- Comprehensive Home Dashboard documentation
+- Full Integrations page coverage
+- 4-tab Settings structure documented
+- Admin Panel deep dive with examples
+- Complete workflow guides
+
+#### 2. New Integrations Guide
+**Added:**
+- MCP Server types and configuration
+- Authentication methods (none, API key, OAuth, basic)
+- Rules system overview
+- Security best practices
+- Troubleshooting section
+- Integration ideas and examples
+
+#### 3. New Conversations Guide
+**Added:**
+- Conversation model explanation
+- Comparison with deprecated Run model
+- Database structure and state management
+- Testing workflows
+- Conversation modes
+- Monitoring and troubleshooting
+
+#### 4. Deprecation Notices
+**Updated:**
+- `backend/models/run.py`: Clear deprecation warning
+- `frontend/src/pages/Runs.tsx`: User-facing deprecation banner
+- Both point to conversations documentation
+
+---
+
+## 📊 Update Statistics
+
+| Category | Count |
+|----------|-------|
+| **Files Created** | 2 |
+| **Files Updated** | 5 |
+| **Deprecation Notices Added** | 2 |
+| **Broken Links Fixed** | 8 |
+| **Total Doc Pages** | 11 |
+
+### Content Breakdown
+
+- **Getting Started**: 1 guide (quickstart.md)
+- **User Guide**: 3 guides (dashboard, integrations, conversations)
+- **Architecture**: 2 docs (overview, multi-project)
+- **Development**: 2 docs (debugging, slack-formatting)
+- **Archive**: 3 docs (historical reference)
+
+---
+
+## ✅ Current Documentation Status
+
+### Available Documentation ✅
+- Quick Start Guide
+- Dashboard Guide (comprehensive)
+- Integrations Guide (MCP servers, rules)
+- Conversations Guide (model explanation)
+- Architecture Overview
+- Multi-Project Classification
+- Debugging Guide
+- Slack Formatting Guide
+
+### Coming Soon 📋
+- Slack Usage Guide (full Slack interaction patterns)
+- Project Management Guide (deep dive)
+- Troubleshooting Guide (common issues)
+- Development Setup Guide (local environment)
+- API Reference Guide (REST endpoints)
+- Frontend Structure Guide (React architecture)
+
+---
+
+## 🎨 Documentation Philosophy Applied
+
+1. **Accuracy First**
+   - All documentation matches current implementation
+   - No references to non-existent features
+   - Clear "Coming Soon" markers for planned features
+
+2. **User-Focused**
+   - Dashboard as central hub
+   - Clear workflows and examples
+   - Troubleshooting sections in each guide
+
+3. **Developer-Friendly**
+   - Code examples with proper syntax
+   - Database schema documentation
+   - Architecture explanations
+
+4. **Deprecation Strategy**
+   - Clear warnings in code and UI
+   - Migration guidance to new patterns
+   - Links to updated documentation
+
+---
+
+## 🚀 Impact
+
+### For Users
+- ✅ Accurate understanding of dashboard capabilities
+- ✅ Clear guidance on Integrations and MCP servers
+- ✅ Understanding of conversation model vs old run model
+- ✅ Better troubleshooting resources
+
+### For Developers
+- ✅ Deprecation warnings guide away from old patterns
+- ✅ Clear documentation of current architecture
+- ✅ Examples and code snippets for reference
+- ✅ Database schema documentation
+
+### For Contributors
+- ✅ Up-to-date documentation to reference
+- ✅ Clear structure for adding new docs
+- ✅ Examples of good documentation style
+- ✅ "Coming Soon" roadmap for documentation gaps
+
+---
+
+## 📁 Updated File Structure
+
+```
+docs/
+├── README.md                          # Updated with new files, fixed links
+├── getting-started/
+│   └── quickstart.md                  # Updated Settings section
+├── user-guide/
+│   ├── dashboard.md                   # Complete rewrite ⭐
+│   ├── integrations.md                # NEW ⭐
+│   └── conversations.md               # NEW ⭐
+├── architecture/
+│   ├── overview.md                    # (Unchanged)
+│   └── multi-project.md               # (Unchanged)
+├── development/
+│   ├── debugging.md                   # (Unchanged)
+│   └── slack-formatting.md            # (Unchanged)
+└── archive/
+    └── (Historical docs)              # (Unchanged)
+
+backend/models/
+└── run.py                             # Added deprecation notice ⭐
+
+frontend/src/pages/
+└── Runs.tsx                           # Added deprecation banner ⭐
+```
+
+---
+
+## 💡 Key Improvements
+
+1. **Dashboard Documentation**
+   - Now covers all actual features
+   - Removed references to non-existent Runs page
+   - Added comprehensive Settings tab breakdown
+   - Included Monitor charts and GitHub integration
+
+2. **Integrations Documentation**
+   - New comprehensive guide for MCP servers
+   - Security best practices
+   - Future-proofed for Rules and API integrations
+
+3. **Conversations Documentation**
+   - Clear explanation of architectural shift
+   - Comparison table with old Run model
+   - Database and state management details
+
+4. **Documentation Index**
+   - Fixed all broken links
+   - Clear separation of available vs coming soon
+   - Easy navigation structure
+
+---
+
+## 📞 Documentation Maintenance
+
+### When adding new features:
+1. Update relevant docs in `docs/` structure
+2. Add links to `docs/README.md` index
+3. Update main `README.md` if major feature
+4. Add to this DOCUMENTATION_MIGRATION.md
+
+### File locations:
+- User-facing guides → `docs/user-guide/`
+- Setup instructions → `docs/getting-started/`
+- Technical details → `docs/architecture/`
+- Development info → `docs/development/`
+- Historical content → `docs/archive/`
+
+---
+
+**Summary:** Documentation now accurately reflects Sline's current implementation with comprehensive coverage of dashboard features, integrations, and the conversation model. All broken links fixed, deprecation notices added, and clear roadmap for future documentation. 🎉

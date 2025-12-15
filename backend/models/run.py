@@ -1,8 +1,15 @@
 """
-Run model for tracking Cline execution lifecycle.
+DEPRECATED: Run model for tracking Cline execution lifecycle.
 
-This model stores information about individual Cline runs, including their
-status, timing, and associated metadata for Slack integration.
+⚠️ DEPRECATION NOTICE ⚠️
+This RunModel is legacy from the CLI-based architecture.
+The current implementation uses ConversationModel (conversation.py) instead,
+which supports thread-based, persistent conversations.
+
+This file is kept for backwards compatibility and database schema only.
+New code should NOT use RunModel - use ConversationModel instead.
+
+See docs/user-guide/conversations.md for details on the conversation model.
 """
 
 import enum

@@ -57,15 +57,18 @@ Dashboard will be available at **http://localhost:3001**
 ## Step 3: Configure API Keys (1 minute)
 
 1. Open **http://localhost:3001/settings**
-2. Select your LLM provider (e.g., Anthropic)
-3. Enter your API key
-4. Enter model ID (e.g., `claude-sonnet-4-5-20250929`)
-5. Click **Save Configuration**
+2. Go to **Providers** tab
+3. Select your LLM provider (e.g., Anthropic)
+4. Enter your API key
+5. Enter model ID (e.g., `claude-sonnet-4-5-20250929`)
+6. Click **Save Configuration**
 
 **⚠️ Important:** Restart the backend after saving:
 ```powershell
 docker-compose restart backend
 ```
+
+**Note:** Settings has 4 tabs - Providers, Agent, MCP Servers, and Advanced. You can configure agent behavior and integrations in the other tabs.
 
 ---
 

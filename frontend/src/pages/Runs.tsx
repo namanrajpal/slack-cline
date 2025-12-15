@@ -8,6 +8,7 @@ export default function Runs() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [showDeprecationWarning] = useState(true);
 
   useEffect(() => {
     loadRuns();
@@ -33,6 +34,42 @@ export default function Runs() {
 
   return (
     <div className="space-y-6">
+      {/* Deprecation Warning */}
+      {showDeprecationWarning && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+          <div className="flex gap-3">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-yellow-600 dark:text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                ⚠️ This Page is Deprecated
+              </h3>
+              <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                <p className="mb-2">
+                  The "Runs" model is legacy from the CLI-based architecture. Sline now uses a <strong>conversation-based model</strong> instead.
+                </p>
+                <p className="mb-2">
+                  <strong>What changed:</strong> Each Slack thread is now a persistent conversation with full history, not a one-time "run".
+                </p>
+                <p>
+                  <strong>Learn more:</strong> See the{' '}
+                  <a 
+                    href="/docs/user-guide/conversations" 
+                    className="underline font-medium hover:text-yellow-600 dark:hover:text-yellow-200"
+                  >
+                    Conversations Guide
+                  </a>
+                  {' '}for details on the new model.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Runs</h2>

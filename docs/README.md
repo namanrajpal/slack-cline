@@ -10,21 +10,31 @@ Welcome to Sline - your AI coding teammate that lives in Slack! 👋
 - **[Your First Conversation](getting-started/first-conversation.md)** - Tutorial for using Sline
 
 ### 📖 User Guide
+- **[Dashboard Guide](user-guide/dashboard.md)** - Central hub for managing your agent
+- **[Integrations Guide](user-guide/integrations.md)** - MCP servers, rules, and API integrations
+- **[Conversations Guide](user-guide/conversations.md)** - Understanding the conversation model
+<!-- Coming Soon:
 - **[Using Sline in Slack](user-guide/slack-usage.md)** - @mention commands and conversations
-- **[Dashboard Guide](user-guide/dashboard.md)** - Testing and configuration interface
 - **[Project Management](user-guide/projects.md)** - Setting up repositories
 - **[Troubleshooting](user-guide/troubleshooting.md)** - Common issues and solutions
+-->
 
 ### 🏗️ Architecture
 - **[Architecture Overview](architecture/overview.md)** - System design and components
+- **[Multi-Project Classification](architecture/multi-project.md)** - LLM-based project selection
+<!-- Coming Soon:
 - **[Agent System](architecture/agent-system.md)** - SlineBrain and LangGraph details
 - **[Conversation Model](architecture/conversation-model.md)** - State persistence and threads
-- **[Multi-Project Classification](architecture/multi-project.md)** - LLM-based project selection
+-->
 
 ### 🛠️ Development
-- **[Development Setup](development/setup.md)** - Local development environment
 - **[Debugging Guide](development/debugging.md)** - Using VS Code debugger with Docker
+- **[Slack Formatting](development/slack-formatting.md)** - Formatting messages for Slack
+<!-- Coming Soon:
+- **[Development Setup](development/setup.md)** - Local development environment
 - **[API Reference](development/api-reference.md)** - REST API documentation
+- **[Frontend Structure](development/frontend-structure.md)** - React component architecture
+-->
 
 ## 🎯 What is Sline?
 
@@ -64,8 +74,9 @@ Sline is a **conversational AI coding assistant** that integrates seamlessly int
 
 ### For Users
 - [Get Started in 5 Minutes](getting-started/quickstart.md)
-- [How to Use Sline](user-guide/slack-usage.md)
-- [Common Issues](user-guide/troubleshooting.md)
+- [Dashboard Guide](user-guide/dashboard.md)
+- [Integrations Guide](user-guide/integrations.md)
+- [Conversations Guide](user-guide/conversations.md)
 
 ### For Developers
 - [Development Setup](development/setup.md)
@@ -74,14 +85,15 @@ Sline is a **conversational AI coding assistant** that integrates seamlessly int
 
 ### For Administrators
 - [Production Deployment](../README.md#deployment)
+- [Environment Variables](getting-started/quickstart.md#configuration-files)
+<!-- Coming Soon:
 - [Slack App Configuration](user-guide/slack-usage.md#slack-app-setup)
-- [Environment Variables](development/setup.md#configuration)
+-->
 
 ## 📞 Support & Community
 
-- **Issues**: [GitHub Issues](https://github.com/your-org/sline/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/sline/discussions)
-- **Email**: support@sline.example.com
+- **Issues**: [GitHub Issues](https://github.com/namanrajpal/slack-cline/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/namanrajpal/slack-cline/discussions)
 
 ## 📄 License
 
