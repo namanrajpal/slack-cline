@@ -87,6 +87,7 @@ export default function Chat() {
 
   // Refs
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const loadedThreadRef = useRef<string | null>(null);
 
   // Auto-scroll hook
   const {
@@ -99,7 +100,7 @@ export default function Chat() {
   } = useAutoScroll({ thresholdPx: 100 });
 
   // Initialize chat stream hook
-  const { messages, isLoading, threadId, sendMessage, setThreadId } = useChatStream({
+  const { messages, isLoading, threadId, sendMessage, setThreadId, loadThread, clearMessages } = useChatStream({
     threadId: routeThreadId,
     onError: (error) => {
       toast({
@@ -117,19 +118,23 @@ export default function Chat() {
     }
   }, [messages]);
 
-  // Update URL when threadId changes (after first message)
+  // Clear messages when navigating to base /chat (new chat)
   useEffect(() => {
-    if (threadId && messages.length > 0 && !routeThreadId) {
-      navigate(`/chat/${threadId}`, { replace: true });
+    if (!routeThreadId && messages.length > 0) {
+      clearMessages();
+      loadedThreadRef.current = null; // Reset loaded thread ref
     }
-  }, [threadId, messages.length, routeThreadId, navigate]);
+  }, [routeThreadId, messages.length, clearMessages]);
 
-  // Set threadId from route param
+  // Load thread from route param (only if no messages yet)
   useEffect(() => {
-    if (routeThreadId && routeThreadId !== threadId) {
-      setThreadId(routeThreadId);
+    if (routeThreadId && 
+        loadedThreadRef.current !== routeThreadId &&
+        messages.length === 0) {
+      loadedThreadRef.current = routeThreadId;
+      loadThread(routeThreadId);
     }
-  }, [routeThreadId, threadId, setThreadId]);
+  }, [routeThreadId, messages.length, loadThread]);
 
   // Auto-scroll when messages change (only if at bottom)
   useEffect(() => {

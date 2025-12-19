@@ -63,7 +63,6 @@ class DashboardService:
             tenant_id=data.tenant_id,
             name=data.name,
             description=data.description,
-            slack_channel_id=data.slack_channel_id,
             repo_url=data.repo_url,
             default_ref=data.default_ref
         )
@@ -108,8 +107,6 @@ class DashboardService:
             project.name = data.name
         if data.description is not None:
             project.description = data.description
-        if data.slack_channel_id is not None:
-            project.slack_channel_id = data.slack_channel_id
         if data.repo_url is not None:
             project.repo_url = data.repo_url
         if data.default_ref is not None:

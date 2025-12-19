@@ -230,14 +230,35 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
     setThreadId(crypto.randomUUID());
   }, [cancel]);
 
-  // Load existing thread messages (placeholder for future implementation)
+  // Load existing thread messages
   const loadThread = useCallback(
     async (newThreadId: string) => {
       setThreadId(newThreadId);
-      // TODO: Fetch existing messages from backend
-      // GET /api/chat/thread/{threadId}
+      setIsLoading(true);
+      
+      try {
+        const response = await fetch(`${apiUrl}/api/chat/thread/${newThreadId}`);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to load thread: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Set messages from the loaded thread
+        if (data.messages && Array.isArray(data.messages)) {
+          setMessages(data.messages);
+        }
+      } catch (error) {
+        console.error('Failed to load thread:', error);
+        if (onError) {
+          onError(error as Error);
+        }
+      } finally {
+        setIsLoading(false);
+      }
     },
-    []
+    [apiUrl, onError]
   );
 
   return {

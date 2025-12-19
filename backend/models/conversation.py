@@ -44,6 +44,7 @@ class ConversationModel(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_user_id = Column(String(255))  # Last user who interacted
     message_count = Column(Integer, default=0)
+    title = Column(String(255), nullable=True)  # Conversation title (derived from first message)
     
     # Relationships
     project = relationship("ProjectModel", back_populates="conversations")

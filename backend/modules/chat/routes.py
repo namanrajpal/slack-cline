@@ -180,22 +180,16 @@ async def list_threads(
         state_json = conv.state_json or {}
         messages = state_json.get("messages", [])
         
-        # Extract title from first user message
-        title = "New conversation"
-        last_preview = ""
+        # Use stored title, or fallback to extracting from messages
+        title = conv.title or "New conversation"
         
-        for msg in messages:
-            msg_type = msg.get("type")
+        # Get last message preview
+        last_preview = ""
+        for msg in reversed(messages):
             content = msg.get("content", "")
-            
-            if msg_type == "HumanMessage" and not title.startswith("New"):
-                continue
-            elif msg_type == "HumanMessage":
-                title = content[:50] + ("..." if len(content) > 50 else "")
-            
-            # Track last message for preview
             if content:
                 last_preview = content[:100] + ("..." if len(content) > 100 else "")
+                break
         
         summaries.append(
             ConversationSummary(
@@ -255,7 +249,8 @@ async def get_thread(
     
     # Convert to chat message format with stable IDs
     chat_messages = []
-    message_index = 0
+    user_index = 0
+    ai_index = 0
     
     for msg_data in messages_data:
         msg_type = msg_data.get("type")
@@ -264,14 +259,15 @@ async def get_thread(
         if msg_type == "HumanMessage":
             chat_messages.append(
                 ChatMessage(
-                    id=f"{thread_id}:user:{message_index}",
+                    id=f"{thread_id}:user:{user_index}",
                     role="user",
                     content=content
                 )
             )
+            user_index += 1
         elif msg_type == "AIMessage":
             # Use same stable ID generation as streaming
-            msg_id = generate_message_id(thread_id, message_index)
+            msg_id = generate_message_id(thread_id, ai_index)
             chat_messages.append(
                 ChatMessage(
                     id=msg_id,
@@ -279,7 +275,7 @@ async def get_thread(
                     content=content
                 )
             )
-            message_index += 1
+            ai_index += 1
     
     logger.info(f"Returning {len(chat_messages)} messages for thread {thread_id}")
     

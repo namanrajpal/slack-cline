@@ -190,6 +190,9 @@ class AgentService:
             # Generate run ID
             run_id = str(uuid4())
             
+            # Accumulate AI response during streaming
+            ai_response_content = ""
+            
             # Stream AG-UI events
             # Note: stream_agui_events() wraps graph.astream_events() which
             # executes the graph and streams events. We don't need to re-invoke.
@@ -200,11 +203,17 @@ class AgentService:
                 run_id=run_id,
                 message_index=message_index,
             ):
+                # Capture AI message content from streaming events
+                if agui_event.type == "textMessageContent":
+                    ai_response_content += agui_event.delta or ""
+                
                 yield agui_event
             
-            # After streaming, the state has been modified by the graph execution.
-            # We use the modified state (which has the new AI message added by the graph).
-            # The graph modifies state in-place during astream_events().
+            # After streaming, manually add the AI message to state
+            # (astream_events doesn't modify state in-place like ainvoke does)
+            if ai_response_content:
+                ai_message = AIMessage(content=ai_response_content)
+                state["messages"].append(ai_message)
             
             # Update cached state
             self._conversations[conversation_key] = state
@@ -435,10 +444,17 @@ class AgentService:
             # Serialize state
             state_json = self.state_to_json(state)
             
+            # Generate title from first user message if not already set
+            title = None
+            if not conversation or not conversation.title:
+                title = self._generate_title(state)
+            
             if conversation:
                 # Update existing conversation
                 conversation.state_json = state_json
                 conversation.update_metadata(user_id)
+                if title:
+                    conversation.title = title
                 logger.debug(f"Updated conversation {channel_id}:{thread_ts} in database")
             else:
                 # Create new conversation
@@ -449,6 +465,7 @@ class AgentService:
                     state_json=state_json,
                     last_user_id=user_id,
                     message_count=len(state.get("messages", [])),
+                    title=title or "New conversation",
                 )
                 session.add(conversation)
                 logger.info(f"Created new conversation {channel_id}:{thread_ts} in database")
@@ -542,6 +559,30 @@ class AgentService:
             error=json_data.get("error"),
             files_context=json_data.get("files_context"),
         )
+    
+    def _generate_title(self, state: SlineState) -> str:
+        """
+        Generate a conversation title from the first user message.
+        
+        Args:
+            state: SlineState
+        
+        Returns:
+            Title string (max 60 chars)
+        """
+        messages = state.get("messages", [])
+        
+        # Find first user message
+        for msg in messages:
+            if isinstance(msg, HumanMessage):
+                content = msg.content.strip()
+                if content:
+                    # Truncate to 60 chars
+                    if len(content) > 60:
+                        return content[:60] + "..."
+                    return content
+        
+        return "New conversation"
 
 
 def get_agent_service() -> AgentService:
