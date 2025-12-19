@@ -46,26 +46,6 @@ class ProjectResponseSchema(BaseModel):
     updated_at: datetime
 
 
-class RunResponseSchema(BaseModel):
-    """Schema for run response."""
-    
-    model_config = ConfigDict(from_attributes=True)
-    
-    id: UUID
-    project_id: UUID
-    tenant_id: str
-    status: str
-    task_prompt: str
-    slack_channel_id: str
-    cline_run_id: Optional[str]
-    cline_instance_address: Optional[str]
-    workspace_path: Optional[str]
-    created_at: datetime
-    started_at: Optional[datetime]
-    finished_at: Optional[datetime]
-    summary: Optional[str]
-
-
 class ApiKeyConfigSchema(BaseModel):
     """Schema for API key configuration."""
     

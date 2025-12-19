@@ -5,6 +5,6 @@ This package contains SQLAlchemy models for the application.
 """
 
 from .project import ProjectModel
-from .run import RunModel
+from .conversation import ConversationModel
 
-__all__ = ["ProjectModel", "RunModel"]
+__all__ = ["ProjectModel", "ConversationModel"]

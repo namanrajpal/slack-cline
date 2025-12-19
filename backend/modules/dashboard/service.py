@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from models.project import ProjectModel
-from models.run import RunModel, RunStatus
 from schemas.dashboard import (
     ProjectCreateSchema,
     ProjectUpdateSchema,
@@ -150,61 +149,6 @@ class DashboardService:
         
         logger.info(f"Deleted project {project_id}")
         return True
-    
-    async def get_runs(
-        self,
-        session: AsyncSession,
-        status: Optional[str] = None,
-        project_id: Optional[str] = None,
-        limit: int = 50
-    ) -> List[RunModel]:
-        """
-        Get runs with optional filters.
-        
-        Args:
-            session: Database session
-            status: Filter by status
-            project_id: Filter by project
-            limit: Maximum number of results
-            
-        Returns:
-            List of RunModel instances
-        """
-        query = select(RunModel).order_by(desc(RunModel.created_at)).limit(limit)
-        
-        # Apply filters
-        if status:
-            try:
-                status_enum = RunStatus(status)
-                query = query.where(RunModel.status == status_enum)
-            except ValueError:
-                logger.warning(f"Invalid status filter: {status}")
-        
-        if project_id:
-            query = query.where(RunModel.project_id == UUID(project_id))
-        
-        result = await session.execute(query)
-        return result.scalars().all()
-    
-    async def get_run_details(
-        self,
-        run_id: str,
-        session: AsyncSession
-    ) -> Optional[RunModel]:
-        """
-        Get detailed information for a single run.
-        
-        Args:
-            run_id: Run UUID
-            session: Database session
-            
-        Returns:
-            RunModel instance or None if not found
-        """
-        result = await session.execute(
-            select(RunModel).where(RunModel.id == UUID(run_id))
-        )
-        return result.scalar_one_or_none()
     
     def get_api_config(self) -> ApiKeyConfigSchema:
         """

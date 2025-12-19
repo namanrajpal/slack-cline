@@ -52,38 +52,6 @@ class ApiClient {
   }
 
   // ============================================================================
-  // RUN MONITORING
-  // ============================================================================
-
-  async getRuns(filters?: RunFilters): Promise<Run[]> {
-    const params = new URLSearchParams();
-    
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.project_id) params.append('project_id', filters.project_id);
-    if (filters?.limit) params.append('limit', filters.limit.toString());
-
-    const response = await api.get<Run[]>(`/api/runs?${params.toString()}`);
-    return response.data;
-  }
-
-  async getRunDetails(id: string): Promise<Run> {
-    const response = await api.get<Run>(`/api/runs/${id}`);
-    return response.data;
-  }
-
-  async respondToRun(
-    runId: string, 
-    action: 'approve' | 'deny', 
-    message?: string
-  ): Promise<{ success: boolean; message: string; action: string; run_id: string }> {
-    const response = await api.post(`/api/runs/${runId}/respond`, {
-      action,
-      message
-    });
-    return response.data;
-  }
-
-  // ============================================================================
   // CONFIGURATION
   // ============================================================================
 

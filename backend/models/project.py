@@ -47,7 +47,6 @@ class ProjectModel(Base):
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    runs = relationship("RunModel", back_populates="project", cascade="all, delete-orphan")
     conversations = relationship("ConversationModel", back_populates="project", cascade="all, delete-orphan")
     
     def __repr__(self):

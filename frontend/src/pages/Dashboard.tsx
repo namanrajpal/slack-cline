@@ -66,10 +66,7 @@ export default function Dashboard() {
       setLoading(true);
       setError(null);
       
-      const [projectsData] = await Promise.all([
-        apiClient.getProjects(),
-        apiClient.getRuns({ limit: 10 }),
-      ]);
+      const projectsData = await apiClient.getProjects();
       
       setProjects(projectsData);
 

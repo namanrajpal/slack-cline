@@ -14,11 +14,12 @@ from fastapi.responses import JSONResponse
 
 from config import settings
 from database import get_session
-from schemas.slack import SlackCommandSchema, SlackInteractivitySchema, StartRunCommand, CancelRunCommand
+from schemas.slack import SlackCommandSchema, SlackInteractivitySchema
 from modules.agent.service import get_agent_service
 from utils.logging import get_logger, log_slack_event
 from utils.slack_client import SlackClient
 from .verification import extract_slack_headers, require_slack_verification
+from .command_handler import handle_sline_command
 
 logger = get_logger("slack.gateway")
 
@@ -127,8 +128,14 @@ async def handle_slack_events(request: Request, background_tasks: BackgroundTask
         )
         
         # Handle different command types
-        if command == "/cline":
-            return await handle_cline_command(command_data, background_tasks)
+        if command == "/sline":
+            return await handle_sline_command(command_data, background_tasks)
+        elif command == "/cline":
+            # Legacy support - redirect to /sline
+            return JSONResponse(content={
+                "response_type": "ephemeral",
+                "text": "⚠️ `/cline` has been renamed to `/sline`\n\nPlease use `/sline` instead!"
+            })
         else:
             logger.warning(f"Unknown command: {command}")
             return JSONResponse(
@@ -309,200 +316,7 @@ async def process_thread_reply(
         logger.error(f"Critical error in thread reply processing: {e}", exc_info=True)
 
 
-async def handle_cline_command(command_data: SlackCommandSchema, background_tasks: BackgroundTasks) -> JSONResponse:
-    """
-    Handle `/cline` slash command.
-    
-    Simplified command structure - primary interaction is via @mentions.
-    Slash commands are for utility functions only.
-    
-    Args:
-        command_data: Validated command data from Slack
-        background_tasks: FastAPI background tasks for async processing
-        
-    Returns:
-        JSONResponse: Response to send back to Slack
-    """
-    text = command_data.text.strip()
-    
-    # If no subcommand, show help
-    if not text:
-        return await handle_help_command()
-    
-    # Parse command and arguments
-    parts = text.split(maxsplit=1)
-    subcommand = parts[0].lower() if parts else ""
-    
-    if subcommand == "status":
-        return await handle_status_command(command_data)
-    elif subcommand == "help":
-        return await handle_help_command()
-    else:
-        # Unknown command - suggest @mention instead
-        return JSONResponse(content={
-            "response_type": "ephemeral",
-            "text": f"❓ Unknown command: `{subcommand}`\n\n💡 **Tip:** To chat with Sline, just @mention me in any message!\n\nExample: `@sline what files are in this project?`\n\nUse `/cline help` for available commands."
-        })
-
-
-async def process_agent_message_background(
-    channel_id: str,
-    user_id: str,
-    text: str,
-    initial_ts: str,
-):
-    """
-    Background worker to process message with Sline agent and post response.
-    
-    This runs asynchronously after returning immediate acknowledgement to Slack.
-    
-    Args:
-        channel_id: Slack channel ID
-        user_id: User who sent the message
-        text: Message text
-        initial_ts: Thread timestamp for posting responses
-    """
-    try:
-        agent_service = get_agent_service()
-        slack_client = SlackClient()
-        
-        async for session in get_session():
-            try:
-                # Process message with agent
-                response = await agent_service.handle_message(
-                    channel_id=channel_id,
-                    thread_ts=initial_ts,
-                    user_id=user_id,
-                    text=text,
-                    session=session,
-                )
-                
-                # Post response to Slack thread
-                await slack_client.post_message(
-                    channel=channel_id,
-                    text=response,
-                    thread_ts=initial_ts,
-                )
-                
-                logger.info(f"Agent response posted to thread {initial_ts}")
-                break  # Exit after successful processing
-                
-            except Exception as e:
-                logger.error(f"Background task failed to process message: {e}", exc_info=True)
-                # Post error to thread
-                try:
-                    await slack_client.post_message(
-                        channel=channel_id,
-                        text=f"❌ Sline encountered an error: {str(e)}",
-                        thread_ts=initial_ts,
-                    )
-                except:
-                    pass
-                break
-                
-    except Exception as e:
-        logger.error(f"Critical error in background task: {e}", exc_info=True)
-
-
-async def handle_run_command(command_data: SlackCommandSchema, task_prompt: str, background_tasks: BackgroundTasks) -> JSONResponse:
-    """
-    Handle `/cline run <task>` command using AgentService.
-    
-    Returns immediate acknowledgement to Slack (< 3 seconds), then queues
-    the actual agent processing as a background task.
-    
-    Args:
-        command_data: Validated command data from Slack
-        task_prompt: Task description provided by user
-        background_tasks: FastAPI background tasks
-        
-    Returns:
-        JSONResponse: Immediate response with thread timestamp
-    """
-    if not task_prompt.strip():
-        return JSONResponse(content={
-            "response_type": "ephemeral", 
-            "text": "Please provide a task description.\nExample: `/cline run fix failing unit tests`"
-        })
-    
-    try:
-        log_slack_event(
-            "agent_message_received",
-            channel_id=command_data.channel_id,
-            user_id=command_data.user_id,
-            text=task_prompt[:100]
-        )
-        
-        # Post initial message to Slack to get thread_ts
-        slack_client = SlackClient()
-        initial_message = await slack_client.post_message(
-            channel=command_data.channel_id,
-            text=f"🤖 Hey! I'm working on: `{task_prompt}`",
-        )
-        
-        # Get the thread timestamp from the response
-        thread_ts = initial_message.get("ts", "")
-        
-        if not thread_ts:
-            logger.error("Failed to get thread timestamp from Slack")
-            return JSONResponse(content={
-                "response_type": "ephemeral",
-                "text": "❌ Failed to create thread. Please try again."
-            })
-        
-        # Queue background task to process with agent (non-blocking)
-        background_tasks.add_task(
-            process_agent_message_background,
-            channel_id=command_data.channel_id,
-            user_id=command_data.user_id,
-            text=task_prompt,
-            initial_ts=thread_ts,
-        )
-        
-        # Return empty response (message already posted)
-        return JSONResponse(content={})
-        
-    except Exception as e:
-        logger.error(f"Error handling run command: {e}", exc_info=True)
-        return JSONResponse(content={
-            "response_type": "ephemeral",
-            "text": "❌ Failed to start. Please try again."
-        })
-
-
-async def handle_status_command(command_data: SlackCommandSchema) -> JSONResponse:
-    """Handle `/cline status` command to show active runs."""
-    # TODO: Query active runs from database
-    return JSONResponse(content={
-        "response_type": "ephemeral",
-        "text": "📊 Run Status\nNo active runs in this channel."
-    })
-
-
-async def handle_help_command() -> JSONResponse:
-    """Handle `/cline help` command."""
-    return JSONResponse(content={
-        "response_type": "ephemeral",
-        "text": """🤖 **Hey! I'm Sline, your AI coding teammate!**
-
-**💬 How to Chat with Me:**
-Just @mention me in any message or thread! I'll join the conversation naturally.
-
-**Examples:**
-• `@sline what files are in this project?`
-• `@sline can you explain how the auth system works?`
-• `@sline search for TODO comments`
-
-**⚙️ Utility Commands:**
-• `/cline status` - Show active conversations
-• `/cline help` - Show this help message
-
-**💡 Tip:** I'm conversational, not transactional! Feel free to ask questions, discuss approaches, and collaborate with your team in threads.
-"""
-    })
-
-
-@slack_router.post("/interactivity") 
+@slack_router.post("/interactivity")
 async def handle_slack_interactivity(request: Request):
     """
     Handle Slack interactive components like button clicks.
@@ -555,6 +369,12 @@ async def handle_block_actions(interactivity_data: SlackInteractivitySchema, pay
     """
     Handle block action interactions like button clicks.
     
+    TODO: Implement interactive actions for future features:
+    - Plan approvals (deep-plan mode)
+    - Task confirmations
+    - Custom workflow triggers
+    - Contextual actions (start release, deploy, etc.)
+    
     Args:
         interactivity_data: Validated interactivity payload
         payload: Raw payload for accessing action details
@@ -569,160 +389,13 @@ async def handle_block_actions(interactivity_data: SlackInteractivitySchema, pay
     action = actions[0]  # Handle first action
     action_id = action.get("action_id")
     
-    if action_id == "approve_plan":
-        return await handle_approve_plan_action(interactivity_data, action)
-    elif action_id == "cancel_run":
-        return await handle_cancel_run_action(interactivity_data, action)
-    else:
-        logger.warning(f"Unhandled action_id: {action_id}")
-        return JSONResponse(content={"text": f"Action `{action_id}` not supported"})
-
-
-async def handle_approve_plan_action(interactivity_data: SlackInteractivitySchema, action: Dict[str, Any]) -> JSONResponse:
-    """
-    Handle approve plan button click.
+    # Placeholder for future interactivity features
+    logger.info(f"Received interactive action: {action_id}")
     
-    Args:
-        interactivity_data: Validated interactivity payload
-        action: Action details from the button click
-        
-    Returns:
-        JSONResponse: Response to update the message
-    """
-    run_id = action.get("value", "")
-    user_id = interactivity_data.user.get("id", "")
-    
-    try:
-        log_slack_event(
-            "approve_plan_requested",
-            user_id=user_id,
-            run_id=run_id
-        )
-        
-        # Send to Run Orchestrator
-        orchestrator = get_orchestrator_service()
-        
-        async for session in get_session():
-            try:
-                success = await orchestrator.approve_run(run_id, session)
-                
-                if success:
-                    # Update the message to show approval + execution started
-                    return JSONResponse(content={
-                        "replace_original": True,
-                        "text": "✅ Plan approved - Executing...",
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": "✅ Plan approved by user"
-                                }
-                            },
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": "🚀 Executing plan autonomously..."
-                                }
-                            }
-                        ]
-                    })
-                else:
-                    return JSONResponse(content={
-                        "text": "❌ Failed to approve plan"
-                    })
-            except Exception as e:
-                logger.error(f"Error approving plan: {e}")
-                return JSONResponse(content={
-                    "text": "❌ Error occurred while approving plan"
-                })
-
-        # Fallback response
-        return JSONResponse(content={
-            "text": "❌ Failed to approve plan"
-        })
-        
-    except Exception as e:
-        logger.error(f"Error approving plan: {e}", exc_info=True)
-        return JSONResponse(content={"text": "❌ Failed to approve plan"})
-
-
-async def handle_cancel_run_action(interactivity_data: SlackInteractivitySchema, action: Dict[str, Any]) -> JSONResponse:
-    """
-    Handle cancel run button click.
-    
-    Args:
-        interactivity_data: Validated interactivity payload
-        action: Action details from the button click
-        
-    Returns:
-        JSONResponse: Response to update the message
-    """
-    run_id = action.get("value", "")  # TODO: Use actual run ID
-    user_id = interactivity_data.user.get("id", "")
-    
-    try:
-        # Create cancel command
-        cancel_command = CancelRunCommand(
-            run_id=run_id,
-            user_id=user_id,
-            reason="Cancelled by user"
-        )
-        
-        log_slack_event(
-            "cancel_run_requested",
-            user_id=user_id,
-            run_id=run_id
-        )
-        
-        # Send to Run Orchestrator
-        orchestrator = get_orchestrator_service()
-        
-        async for session in get_session():
-            try:
-                success = await orchestrator.cancel_run(cancel_command, session)
-                
-                if success:
-                    # Update the message to show cancellation
-                    return JSONResponse(content={
-                        "replace_original": True,
-                        "text": "❌ Run cancelled by user",
-                        "blocks": [
-                            {
-                                "type": "section",
-                                "text": {
-                                    "type": "mrkdwn",
-                                    "text": "❌ Run cancelled by user"
-                                }
-                            }
-                        ]
-                    })
-                else:
-                    return JSONResponse(content={
-                        "text": "❌ Failed to cancel run"
-                    })
-            except Exception as e:
-                logger.error(f"Error cancelling run: {e}")
-                return JSONResponse(content={
-                    "text": "❌ Error occurred while cancelling run"
-                })
-
-        # Fallback response
-        return JSONResponse(content={
-            "replace_original": True,
-            "text": "❌ Run cancelled by user",
-            "blocks": [
-                {
-                    "type": "section",
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "❌ Run cancelled by user"
-                    }
-                }
-            ]
-        })
-        
-    except Exception as e:
-        logger.error(f"Error cancelling run: {e}", exc_info=True)
-        return JSONResponse(content={"text": "❌ Failed to cancel run"})
+    return JSONResponse(content={
+        "text": "🚧 Interactive actions coming soon!\n\n"
+                "Future features:\n"
+                "• Deep-plan approval workflows\n"
+                "• Custom command triggers\n"
+                "• Contextual actions (deploy, release, etc.)"
+    })

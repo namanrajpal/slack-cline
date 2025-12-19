@@ -15,7 +15,7 @@ class SlackCommandSchema(BaseModel):
     Schema for validating Slack slash command payloads.
     
     This validates the form data sent by Slack when a user issues
-    a slash command like `/cline run <task>`.
+    a slash command like `/sline help` or `/sline <prompt>`.
     """
     
     token: str = Field(..., description="Slack verification token")
@@ -69,32 +69,3 @@ class SlackResponseSchema(BaseModel):
     attachments: Optional[list] = Field(None, description="Legacy attachments")
     replace_original: Optional[bool] = Field(False, description="Replace the original message")
     delete_original: Optional[bool] = Field(False, description="Delete the original message")
-
-
-class StartRunCommand(BaseModel):
-    """
-    Internal command schema for starting a new run.
-    
-    This is used internally to pass validated data between
-    the Slack Gateway and Run Orchestrator modules.
-    """
-    
-    tenant_id: str = Field(..., description="Tenant identifier")
-    channel_id: str = Field(..., description="Slack channel ID")
-    user_id: str = Field(..., description="Slack user ID")
-    task_prompt: str = Field(..., description="Task description from user")
-    response_url: str = Field(..., description="Slack response URL for updates")
-    trigger_id: str = Field(..., description="Slack trigger ID")
-
-
-class CancelRunCommand(BaseModel):
-    """
-    Internal command schema for canceling a run.
-    
-    This is used when a user clicks a "Cancel" button or
-    issues a cancellation request.
-    """
-    
-    run_id: str = Field(..., description="Run ID to cancel")
-    user_id: str = Field(..., description="User requesting cancellation")
-    reason: Optional[str] = Field("User requested", description="Cancellation reason")

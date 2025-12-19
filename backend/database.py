@@ -63,7 +63,6 @@ async def create_tables():
     """Create all database tables."""
     # Import models to ensure they're registered
     from models.project import ProjectModel  # noqa
-    from models.run import RunModel  # noqa
     from models.conversation import ConversationModel  # noqa
     
     async with engine.begin() as conn:
