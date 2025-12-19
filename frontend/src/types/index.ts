@@ -5,7 +5,6 @@ export interface Project {
   tenant_id: string;
   name: string;                    // Project name (unique identifier)
   description?: string;            // Project description for LLM classification
-  slack_channel_id?: string;       // Optional - for backwards compatibility
   repo_url: string;
   default_ref: string;
   created_at: string;
@@ -55,7 +54,8 @@ export interface TestSlackResponse {
 
 export interface ProjectCreate {
   tenant_id?: string;
-  slack_channel_id: string;
+  name: string;
+  description?: string;
   repo_url: string;
   default_ref?: string;
 }

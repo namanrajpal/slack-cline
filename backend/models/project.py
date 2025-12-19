@@ -37,8 +37,6 @@ class ProjectModel(Base):
     name = Column(String(255), nullable=False, unique=True, index=True)
     description = Column(String(1024), nullable=True)
     
-    # # Slack channel configuration (optional - for backwards compatibility)
-    slack_channel_id = Column(String(255), nullable=True, index=True)
     
     # Repository configuration
     repo_url = Column(String(512), nullable=False)

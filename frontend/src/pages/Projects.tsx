@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ChevronDown, ChevronRight, GitBranch, Hash, Trash2, FileText, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitBranch, Trash2, FileText, Plus } from 'lucide-react';
 import { SiGithub } from '@icons-pack/react-simple-icons';
 
 export default function Projects() {
@@ -19,7 +19,8 @@ export default function Projects() {
   const [showForm, setShowForm] = useState(false);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [formData, setFormData] = useState<ProjectCreate>({
-    slack_channel_id: '',
+    name: '',
+    description: '',
     repo_url: '',
     default_ref: 'main'
   });
@@ -50,7 +51,7 @@ export default function Projects() {
     try {
       await apiClient.createProject(formData);
       setShowForm(false);
-      setFormData({ slack_channel_id: '', repo_url: '', default_ref: 'main' });
+      setFormData({ name: '', description: '', repo_url: '', default_ref: 'main' });
       loadProjects();
     } catch (err) {
       alert('Failed to create project');
@@ -104,18 +105,27 @@ export default function Projects() {
             <DialogHeader>
               <DialogTitle>Create New Project</DialogTitle>
               <DialogDescription>
-                Connect a Slack channel to a GitHub repository
+                Add a repository for Sline to work with
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="slack-channel">Slack Channel ID</Label>
+                <Label htmlFor="project-name">Project Name</Label>
                 <Input
-                  id="slack-channel"
-                  value={formData.slack_channel_id}
-                  onChange={(e) => setFormData({ ...formData, slack_channel_id: e.target.value })}
-                  placeholder="C1234567890"
+                  id="project-name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="my-awesome-project"
                   required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description (Optional)</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Describe this project for LLM classification"
                 />
               </div>
               <div className="space-y-2">
@@ -201,10 +211,6 @@ export default function Projects() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Hash className="h-4 w-4" />
-                          <span className="font-mono">{project.slack_channel_id}</span>
-                        </div>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <GitBranch className="h-4 w-4" />
                           <span className="font-mono">{project.default_ref}</span>
