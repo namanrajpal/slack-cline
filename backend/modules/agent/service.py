@@ -132,6 +132,7 @@ class AgentService:
         user_id: str,
         text: str,
         session: AsyncSession,
+        project_id: Optional[str] = None,
     ) -> AsyncIterator:
         """
         Handle incoming message with AG-UI event streaming.
@@ -145,6 +146,7 @@ class AgentService:
             user_id: User ID
             text: Message text
             session: Database session
+            project_id: Optional project ID (dashboard-specific context)
         
         Yields:
             AGUIEvent instances for SSE streaming
@@ -164,6 +166,7 @@ class AgentService:
                 user_id=user_id,
                 session=session,
                 user_question=text,
+                project_id=project_id,
             )
             
             if state is None:
@@ -292,12 +295,13 @@ class AgentService:
         user_id: str,
         session: AsyncSession,
         user_question: str = "",
+        project_id: Optional[str] = None,
     ) -> Optional[SlineState]:
         """
         Get existing conversation state or create new one.
         
         Uses LLM-based project classification to determine which project
-        the user is asking about.
+        the user is asking about, unless project_id is provided (dashboard).
         
         Args:
             channel_id: Slack channel ID
@@ -305,6 +309,7 @@ class AgentService:
             user_id: Slack user ID
             session: Database session
             user_question: The user's question (for project classification)
+            project_id: Optional project ID (dashboard-specific context)
         
         Returns:
             SlineState or None if no projects available
@@ -332,24 +337,43 @@ class AgentService:
             return state
         
         # No existing conversation - create new one
-        # Get all projects for classification
-        all_projects = await self._get_all_projects(session)
+        # Determine which project to use
+        project = None
         
-        if not all_projects:
-            logger.warning("No projects configured in the system")
-            return None
+        # If project_id provided (dashboard), use it directly
+        if project_id:
+            try:
+                project_uuid = UUID(project_id)
+                result = await session.execute(
+                    select(ProjectModel).filter(ProjectModel.id == project_uuid)
+                )
+                project = result.scalar_one_or_none()
+                
+                if project:
+                    logger.info(f"Using dashboard-selected project: {project.name}")
+                else:
+                    logger.warning(f"Project {project_id} not found, falling back to classifier")
+            except ValueError:
+                logger.error(f"Invalid project_id format: {project_id}")
         
-        # Use LLM classifier to select the relevant project
-        from .classifier import classify_project
-        from .brain import get_llm_model
-        
-        project = await classify_project(
-            user_question=user_question,
-            projects=all_projects,
-            llm_model=get_llm_model()
-        )
-        
-        logger.info(f"Selected project '{project.name}' for conversation {conversation_key}")
+        # If no project yet (Slack or invalid project_id), use LLM classifier
+        if not project:
+            all_projects = await self._get_all_projects(session)
+            
+            if not all_projects:
+                logger.warning("No projects configured in the system")
+                return None
+            
+            from .classifier import classify_project
+            from .brain import get_llm_model
+            
+            project = await classify_project(
+                user_question=user_question,
+                projects=all_projects,
+                llm_model=get_llm_model()
+            )
+            
+            logger.info(f"LLM classifier selected project '{project.name}' for conversation {conversation_key}")
         
         # Get or create workspace
         workspace_path = await self._get_workspace_path(project)

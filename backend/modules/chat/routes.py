@@ -117,7 +117,10 @@ async def chat_endpoint(
     user_id = "dashboard_user"  # Default for dashboard
     channel_id = "dashboard"  # Use "dashboard" as channel identifier
     
-    logger.info(f"Chat request for thread {thread_id}: {user_text[:50]}...")
+    # Extract project_id (dashboard-specific context)
+    project_id = request.project_id
+    
+    logger.info(f"Chat request for thread {thread_id}: {user_text[:50]}... (project_id={project_id})")
     
     # Get agent service
     agent_service = get_agent_service()
@@ -129,6 +132,7 @@ async def chat_endpoint(
         user_id=user_id,
         text=user_text,
         session=session,
+        project_id=project_id,
     )
     
     # Convert to SSE strings

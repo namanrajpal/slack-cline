@@ -158,7 +158,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
   );
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, projectId?: string | null) => {
       if (!text.trim() || isLoading) return;
 
       // Add user message immediately
@@ -173,8 +173,21 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
       setIsLoading(true);
 
       try {
-        // Use ref to get latest messages (avoids stale closure)
-        const currentMessages = messagesRef.current;
+        // Build request body with optional projectId
+        // Important: Use functional update to get latest messages after setMessages above
+        const requestBody: any = {
+          threadId,
+          messages: messagesRef.current.concat(userMessage).map(m => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+          })),
+        };
+
+        // Include projectId if provided (dashboard-specific context)
+        if (projectId) {
+          requestBody.projectId = projectId;
+        }
 
         // Send POST request to chat endpoint
         const response = await fetch(`${apiUrl}/api/chat`, {
@@ -182,13 +195,7 @@ export function useChatStream(options: UseChatStreamOptions = {}) {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            threadId,
-            messages: [
-              ...currentMessages,
-              { id: userMessage.id, role: 'user', content: text },
-            ],
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {

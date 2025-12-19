@@ -24,7 +24,8 @@ import {
   Clipboard,
   FileText,
   Settings2,
-  Loader2
+  Loader2,
+  Github
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,12 +36,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useChatStream } from '@/hooks/useChatStream';
 import { useAutoScroll } from '@/hooks/useAutoScroll';
 import { ChatMessage as ChatMessageComponent } from '@/components/chat/ChatMessage';
 import { useToast } from '@/components/ui/use-toast';
 import type { ChatMode, PromptSuggestion } from '@/types/chat';
+import type { Project } from '@/types';
+import { apiClient } from '@/api/client';
 
 const PROMPT_SUGGESTIONS: PromptSuggestion[] = [
   {
@@ -85,9 +95,14 @@ export default function Chat() {
   const [inputValue, setInputValue] = useState('');
   const [mode, setMode] = useState<ChatMode>('empty');
 
+  // Project selection state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
   // Refs
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const loadedThreadRef = useRef<string | null>(null);
+  const previousRouteThreadIdRef = useRef<string | undefined>(routeThreadId);
 
   // Auto-scroll hook
   const {
@@ -111,6 +126,25 @@ export default function Chat() {
     },
   });
 
+  // Load projects on mount
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const projectsData = await apiClient.getProjects();
+        setProjects(projectsData);
+      } catch (error) {
+        console.error('Failed to load projects:', error);
+        toast({
+          title: 'Failed to load projects',
+          description: 'Could not fetch project list',
+          variant: 'destructive',
+        });
+      }
+    };
+    
+    loadProjects();
+  }, [toast]);
+
   // Update mode based on messages
   useEffect(() => {
     if (messages.length > 0) {
@@ -118,13 +152,20 @@ export default function Chat() {
     }
   }, [messages]);
 
-  // Clear messages when navigating to base /chat (new chat)
+  // Clear messages when navigating TO /chat (not during active conversation)
   useEffect(() => {
-    if (!routeThreadId && messages.length > 0) {
+    // Only clear if we actually NAVIGATED to /chat (route changed from having threadId to not having one)
+    const routeChanged = previousRouteThreadIdRef.current !== routeThreadId;
+    
+    if (routeChanged && !routeThreadId && messages.length > 0) {
+      console.log('[Chat] Route changed to /chat, clearing messages');
       clearMessages();
-      loadedThreadRef.current = null; // Reset loaded thread ref
+      loadedThreadRef.current = null;
     }
-  }, [routeThreadId, messages.length, clearMessages]);
+    
+    // Update the ref for next comparison
+    previousRouteThreadIdRef.current = routeThreadId;
+  }, [routeThreadId]); // Remove messages.length and clearMessages from deps to prevent loop
 
   // Load thread from route param (only if no messages yet)
   useEffect(() => {
@@ -156,8 +197,9 @@ export default function Chat() {
     // Scroll to bottom on send
     setTimeout(() => scrollToBottom('instant'), 50);
 
-    await sendMessage(text);
-  }, [inputValue, isLoading, sendMessage, scrollToBottom, resetUserScroll]);
+    // Pass selectedProjectId to backend (dashboard-specific context)
+    await sendMessage(text, selectedProjectId);
+  }, [inputValue, isLoading, sendMessage, scrollToBottom, resetUserScroll, selectedProjectId]);
 
   // Handle key press
   const handleKeyDown = useCallback(
@@ -266,21 +308,23 @@ export default function Chat() {
       onSubmit={(e) => { e.preventDefault(); handleSend(); }}
       className="overflow-visible rounded-xl border p-2 transition-colors duration-200 focus-within:border-ring bg-card"
     >
-      {/* Text input */}
-      <Textarea
-        ref={inputRef}
-        value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Ask about your code..."
-        disabled={isLoading}
-        className={cn(
-          'max-h-[200px] min-h-[48px] resize-none rounded-none border-none bg-transparent p-0 text-sm shadow-none',
-          'focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
-          'placeholder:text-muted-foreground/60'
-        )}
-        rows={1}
-      />
+      {/* Text input wrapper with fixed height */}
+      <div className="min-h-[48px]">
+        <Textarea
+          ref={inputRef}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Ask about your code..."
+          disabled={isLoading}
+          className={cn(
+            'max-h-[200px] min-h-[48px] resize-none rounded-none border-none bg-transparent p-0 text-sm shadow-none',
+            'focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
+            'placeholder:text-muted-foreground/60'
+          )}
+          rows={1}
+        />
+      </div>
 
       {/* Bottom toolbar */}
       <div className="flex items-center gap-1 pt-1">
@@ -351,6 +395,33 @@ export default function Chat() {
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Project selector */}
+          {projects.length > 0 && (
+            <div className="relative">
+              <Select
+                value={selectedProjectId || 'auto'}
+                onValueChange={(value) => setSelectedProjectId(value === 'auto' ? null : value)}
+              >
+                <SelectTrigger className="h-7 w-auto min-w-[120px] max-w-[180px] rounded-md border-none bg-transparent text-xs relative z-0">
+                  <SelectValue placeholder="Auto-detect" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl z-50">
+                  <SelectItem value="auto" className="text-xs">
+                    Auto-detect
+                  </SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id} className="text-xs">
+                      <div className="flex items-center gap-2">
+                        <Github className="h-3 w-3 text-muted-foreground" />
+                        <span>{project.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         {/* Right side - send button */}

@@ -148,6 +148,9 @@ class ChatRequest(BaseModel):
     run_id: Optional[str] = Field(default=None, alias="runId")
     messages: Optional[list[ChatMessage]] = None  # Optional for method="info"
     state: Optional[dict] = None  # Shared state from frontend
+    
+    # Dashboard-specific project context (Slack won't use this)
+    project_id: Optional[str] = Field(default=None, alias="projectId")
 
 
 class ChatThreadResponse(BaseModel):

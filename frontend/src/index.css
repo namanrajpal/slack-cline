@@ -2,6 +2,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent layout shift when scrollbar appears/disappears (e.g., when opening Select dropdown) */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Prevent Radix UI from hiding body scrollbar (causes layout shift) */
+body[data-scroll-locked] {
+  overflow: auto !important;
+  padding-right: 0 !important;
+}
+
+/* Additional safeguard for any Radix portals */
+body:has([data-radix-select-content]),
+body:has([data-radix-dropdown-menu-content]) {
+  overflow: auto !important;
+  padding-right: 0 !important;
+}
+
 @layer base {
   :root {
     --background: 210 11% 96%; /* white-smoke-50 */
