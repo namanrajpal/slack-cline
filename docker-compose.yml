@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - .env  # Add this to load from .env file
     ports:
       - "8000:8000"
       - "5678:5678"  # Python debugger port

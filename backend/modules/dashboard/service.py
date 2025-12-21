@@ -15,12 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from models.project import ProjectModel
 from models.run import RunModel, RunStatus
+from models.mcp_server import McpServerModel, McpServerType
 from schemas.dashboard import (
     ProjectCreateSchema,
     ProjectUpdateSchema,
     ApiKeyConfigSchema,
     TestSlackCommandSchema,
-    TestSlackResponseSchema
+    TestSlackResponseSchema,
+    McpServerCreateSchema,
+    McpServerUpdateSchema
 )
 from utils.logging import get_logger
 
@@ -289,6 +292,130 @@ class DashboardService:
                 "message": f"Failed to update configuration: {str(e)}",
                 "restart_required": False
             }
+    
+    async def get_mcp_servers(self, session: AsyncSession) -> List[McpServerModel]:
+        """
+        Get all MCP servers.
+        
+        Args:
+            session: Database session
+            
+        Returns:
+            List of McpServerModel instances
+        """
+        result = await session.execute(
+            select(McpServerModel).order_by(McpServerModel.created_at.desc())
+        )
+        return result.scalars().all()
+    
+    async def create_mcp_server(
+        self,
+        data: McpServerCreateSchema,
+        session: AsyncSession
+    ) -> McpServerModel:
+        """
+        Create a new MCP server.
+        
+        Args:
+            data: MCP server creation data
+            session: Database session
+            
+        Returns:
+            Created McpServerModel instance
+            
+        Raises:
+            ValueError: If invalid server type
+        """
+        try:
+            server_type = McpServerType(data.type)
+        except ValueError:
+            raise ValueError(f"Invalid server type: {data.type}. Must be 'stdio' or 'http'")
+        
+        server = McpServerModel(
+            name=data.name,
+            type=server_type,
+            url=data.url
+        )
+        
+        session.add(server)
+        await session.commit()
+        await session.refresh(server)
+        
+        logger.info(f"Created MCP server '{server.name}' ({server.id})")
+        return server
+    
+    async def update_mcp_server(
+        self,
+        server_id: str,
+        data: McpServerUpdateSchema,
+        session: AsyncSession
+    ) -> McpServerModel:
+        """
+        Update an existing MCP server.
+        
+        Args:
+            server_id: MCP server UUID
+            data: Update data
+            session: Database session
+            
+        Returns:
+            Updated McpServerModel instance
+            
+        Raises:
+            ValueError: If server not found or invalid type
+        """
+        result = await session.execute(
+            select(McpServerModel).where(McpServerModel.id == UUID(server_id))
+        )
+        server = result.scalar_one_or_none()
+        
+        if not server:
+            raise ValueError(f"MCP server {server_id} not found")
+        
+        if data.name is not None:
+            server.name = data.name
+        if data.type is not None:
+            try:
+                server.type = McpServerType(data.type)
+            except ValueError:
+                raise ValueError(f"Invalid server type: {data.type}. Must be 'stdio' or 'http'")
+        if data.url is not None:
+            server.url = data.url
+        
+        await session.commit()
+        await session.refresh(server)
+        
+        logger.info(f"Updated MCP server {server_id}")
+        return server
+    
+    async def delete_mcp_server(
+        self,
+        server_id: str,
+        session: AsyncSession
+    ) -> bool:
+        """
+        Delete an MCP server.
+        
+        Args:
+            server_id: MCP server UUID
+            session: Database session
+            
+        Returns:
+            True if deleted, False if not found
+        """
+        result = await session.execute(
+            select(McpServerModel).where(McpServerModel.id == UUID(server_id))
+        )
+        server = result.scalar_one_or_none()
+        
+        if not server:
+            return False
+        
+        await session.delete(server)
+        await session.commit()
+        
+        logger.info(f"Deleted MCP server {server_id}")
+        return True
 
 
 # Global service instance

@@ -12,6 +12,7 @@ import type {
   RuleConfig,
   McpServer,
   McpServerCreate,
+  McpServerUpdate,
   ProviderConfig
 } from '../types';
 
@@ -166,39 +167,27 @@ class ApiClient {
   // ============================================================================
 
   async getMcpServers(): Promise<McpServer[]> {
-    // TODO: Backend endpoint /api/mcp-servers
-    // Temporary: return empty array
-    return [];
+    const response = await api.get<McpServer[]>('/api/mcp-servers');
+    return response.data;
   }
 
   async createMcpServer(server: McpServerCreate): Promise<McpServer> {
-    // TODO: Backend endpoint /api/mcp-servers
-    const newServer: McpServer = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: server.name,
-      type: server.type as 'filesystem' | 'git' | 'http' | 'database' | 'custom',
-      endpoint: server.endpoint,
-      auth_method: server.auth_method as 'none' | 'api_key' | 'oauth' | 'basic',
-      auth_config: server.auth_config,
-      status: 'disabled',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    return newServer;
+    const response = await api.post<McpServer>('/api/mcp-servers', server);
+    return response.data;
   }
 
-  async updateMcpServer(id: string, server: Partial<McpServerCreate>): Promise<McpServer> {
-    // TODO: Backend endpoint /api/mcp-servers/:id
-    return { id, ...server } as McpServer;
+  async updateMcpServer(id: string, server: McpServerUpdate): Promise<McpServer> {
+    const response = await api.put<McpServer>(`/api/mcp-servers/${id}`, server);
+    return response.data;
   }
 
-  async deleteMcpServer(_id: string): Promise<void> {
-    // TODO: Backend endpoint /api/mcp-servers/:id
+  async deleteMcpServer(id: string): Promise<void> {
+    await api.delete(`/api/mcp-servers/${id}`);
   }
 
   async testMcpServer(_id: string): Promise<{ success: boolean; message: string; latency?: number }> {
     // TODO: Backend endpoint /api/mcp-servers/:id/test
-    return { success: false, message: 'Backend integration required' };
+    return { success: false, message: 'Test connection feature coming soon' };
   }
 
   // ============================================================================

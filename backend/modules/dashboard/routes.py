@@ -28,7 +28,10 @@ from schemas.dashboard import (
     TestSlackCommandSchema,
     TestSlackResponseSchema,
     RunRespondSchema,
-    RunRespondResponseSchema
+    RunRespondResponseSchema,
+    McpServerCreateSchema,
+    McpServerUpdateSchema,
+    McpServerResponseSchema
 )
 from modules.dashboard.service import get_dashboard_service, DashboardService
 from utils.logging import get_logger
@@ -556,3 +559,95 @@ async def stream_run_events(
             "X-Accel-Buffering": "no"  # Disable nginx buffering
         }
     )
+
+
+# ============================================================================
+# MCP SERVER ENDPOINTS
+# ============================================================================
+
+@router.get("/mcp-servers", response_model=List[McpServerResponseSchema])
+async def list_mcp_servers(
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """Get all MCP servers."""
+    try:
+        servers = await service.get_mcp_servers(session)
+        return [McpServerResponseSchema.model_validate(s) for s in servers]
+    except Exception as e:
+        logger.error(f"Failed to list MCP servers: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve MCP servers"
+        )
+
+
+@router.post("/mcp-servers", response_model=McpServerResponseSchema, status_code=status.HTTP_201_CREATED)
+async def create_mcp_server(
+    data: McpServerCreateSchema,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """Create a new MCP server."""
+    try:
+        server = await service.create_mcp_server(data, session)
+        return McpServerResponseSchema.model_validate(server)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Failed to create MCP server: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create MCP server"
+        )
+
+
+@router.put("/mcp-servers/{server_id}", response_model=McpServerResponseSchema)
+async def update_mcp_server(
+    server_id: str,
+    data: McpServerUpdateSchema,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """Update an existing MCP server."""
+    try:
+        server = await service.update_mcp_server(server_id, data, session)
+        return McpServerResponseSchema.model_validate(server)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND if "not found" in str(e).lower() else status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Failed to update MCP server: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update MCP server"
+        )
+
+
+@router.delete("/mcp-servers/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mcp_server(
+    server_id: str,
+    session: AsyncSession = Depends(get_session),
+    service: DashboardService = Depends(get_dashboard_service)
+):
+    """Delete an MCP server."""
+    try:
+        success = await service.delete_mcp_server(server_id, session)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"MCP server {server_id} not found"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete MCP server: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete MCP server"
+        )

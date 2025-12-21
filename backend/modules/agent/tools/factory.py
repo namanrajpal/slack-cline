@@ -11,6 +11,9 @@ import re
 from pathlib import Path
 from typing import List
 from langchain_core.tools import tool
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from models.mcp_server import McpServerModel, McpServerType
+from sqlalchemy.future import select
 
 
 def make_bound_tools(workspace_path: str) -> List:
@@ -253,3 +256,43 @@ def make_write_tools(workspace_path: str) -> List:
             return f"Error writing file: {str(e)}"
     
     return [write_to_file]
+
+async def make_mcp_tools() -> List:
+    """
+    Create MCP tools.
+    
+    Returns:
+        List of MCP tools
+    """
+
+    
+    # Fetch MCP servers from the database
+    # INSERT_YOUR_CODE
+
+    from database import async_session_maker
+    async with async_session_maker() as session:
+        result = await session.execute(select(McpServerModel))
+        mcp_servers = result.scalars().all()
+
+    if not mcp_servers:
+        return None
+
+    # Build a dictionary of MCP servers for MultiServerMCPClient
+    mcp_config = {
+        "airbnb": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["-y", "@openbnb/mcp-server-airbnb",  "--ignore-robots-txt"],
+        }
+    }
+    for server in mcp_servers:
+        mcp_config[server.name] = {
+            "transport": McpServerType(server.type).value,
+            "url": server.url,
+        }
+
+    client = MultiServerMCPClient(  
+        mcp_config
+    )
+    mcp_tools = await client.get_tools()
+    return mcp_tools

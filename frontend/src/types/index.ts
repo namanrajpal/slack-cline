@@ -100,21 +100,22 @@ export interface RuleConfig {
 export interface McpServer {
   id: string;
   name: string;
-  type: 'filesystem' | 'git' | 'http' | 'database' | 'custom';
-  endpoint: string;
-  status: 'connected' | 'error' | 'disabled';
-  auth_method: 'none' | 'api_key' | 'oauth' | 'basic';
-  auth_config?: Record<string, string>;
+  type: 'stdio' | 'http';
+  url: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface McpServerCreate {
   name: string;
-  type: string;
-  endpoint: string;
-  auth_method: string;
-  auth_config?: Record<string, string>;
+  type: 'stdio' | 'http';
+  url: string;
+}
+
+export interface McpServerUpdate {
+  name?: string;
+  type?: 'stdio' | 'http';
+  url?: string;
 }
 
 // Enhanced provider config (extends existing ApiKeyConfig)

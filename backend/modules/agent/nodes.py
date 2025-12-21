@@ -20,7 +20,7 @@ logger = get_logger("agent.nodes")
 _brain_cache: Dict[str, Any] = {}
 
 
-def get_or_create_brain(workspace_path: str, include_write_tools: bool = False):
+async def get_or_create_brain(workspace_path: str, include_write_tools: bool = False):
     """
     Get or create a SlineBrain for the given workspace.
     
@@ -36,7 +36,7 @@ def get_or_create_brain(workspace_path: str, include_write_tools: bool = False):
     cache_key = f"{workspace_path}:{include_write_tools}"
     
     if cache_key not in _brain_cache:
-        _brain_cache[cache_key] = create_sline_brain(
+        _brain_cache[cache_key] = await create_sline_brain(
             workspace_path, 
             include_write_tools=include_write_tools
         )
@@ -63,7 +63,7 @@ async def chat_node(state: SlineState) -> dict:
     logger.info(f"chat_node invoked for workspace: {workspace_path}")
     
     # Get or create brain with read-only tools
-    brain = get_or_create_brain(workspace_path, include_write_tools=False)
+    brain = await get_or_create_brain(workspace_path, include_write_tools=False)
     
     # Build messages with system prompt
     system_prompt = get_system_prompt(mode)
@@ -186,7 +186,7 @@ async def plan_node(state: SlineState) -> dict:
     logger.info(f"plan_node invoked for workspace: {workspace_path}")
     
     # Get brain with read-only tools (planning doesn't need write tools)
-    brain = get_or_create_brain(workspace_path, include_write_tools=False)
+    brain = await get_or_create_brain(workspace_path, include_write_tools=False)
     
     # Build messages with planning mode instructions
     system_prompt = get_system_prompt("planning")
@@ -308,7 +308,7 @@ async def execute_node(state: SlineState) -> dict:
         }
     
     # Get brain WITH write tools for execution
-    brain = get_or_create_brain(workspace_path, include_write_tools=True)
+    brain = await get_or_create_brain(workspace_path, include_write_tools=True)
     
     # Build messages with execute mode instructions
     system_prompt = get_system_prompt("executing")

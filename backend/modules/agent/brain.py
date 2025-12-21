@@ -8,7 +8,8 @@ The brain is created per-conversation since tools are bound to workspace_path.
 from typing import Optional
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
+from .tools.factory import make_mcp_tools
 
 from config import settings
 from utils.logging import get_logger
@@ -96,7 +97,7 @@ def get_llm_model():
     return _llm_model
 
 
-def create_sline_brain(workspace_path: str, include_write_tools: bool = False):
+async def create_sline_brain(workspace_path: str, include_write_tools: bool = False):
     """
     Create SlineBrain ReAct agent with tools bound to workspace.
     
@@ -114,7 +115,12 @@ def create_sline_brain(workspace_path: str, include_write_tools: bool = False):
     
     # Create tools with workspace bound
     tools = make_bound_tools(workspace_path)
-    
+   
+    mcp_tools = await make_mcp_tools()
+    if mcp_tools:
+        tools.extend(mcp_tools)
+
+
     # Add write tools if requested (for execute mode)
     if include_write_tools:
         tools.extend(make_write_tools(workspace_path))
@@ -126,7 +132,7 @@ def create_sline_brain(workspace_path: str, include_write_tools: bool = False):
     
     # Create ReAct agent
     # Note: System prompt is passed per-invocation via messages for flexibility
-    agent = create_react_agent(
+    agent = create_agent(
         model=model,
         tools=tools,
     )

@@ -5,11 +5,11 @@ This module contains schemas for validating dashboard API requests
 and responses, including project management, run queries, and configuration.
 """
 
-from typing import Optional
+from typing import Optional, Any
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 class ProjectCreateSchema(BaseModel):
@@ -114,3 +114,55 @@ class RunRespondResponseSchema(BaseModel):
     message: str
     action: str
     run_id: str
+
+
+# ============================================================================
+# MCP SERVER SCHEMAS
+# ============================================================================
+
+class McpServerCreateSchema(BaseModel):
+    """Schema for creating a new MCP server."""
+    
+    name: str = Field(..., description="Server name")
+    type: str = Field(..., description="Server type: stdio or http")
+    url: str = Field(..., description="Server URL")
+
+
+class McpServerUpdateSchema(BaseModel):
+    """Schema for updating an existing MCP server."""
+    
+    name: Optional[str] = Field(None, description="Server name")
+    type: Optional[str] = Field(None, description="Server type")
+    url: Optional[str] = Field(None, description="Server URL")
+
+
+class McpServerResponseSchema(BaseModel):
+    """Schema for MCP server response."""
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    name: str
+    type: str  # Serialized from McpServerType enum value
+    url: str
+    created_at: datetime
+    updated_at: datetime
+    
+    @model_validator(mode='before')
+    @classmethod
+    def convert_enum_type(cls, data: Any) -> Any:
+        """Convert enum type to string value."""
+        if isinstance(data, dict):
+            return data
+        # If data is an object with attributes (from_attributes mode)
+        if hasattr(data, 'type') and hasattr(data.type, 'value'):
+            # Convert to dict and replace enum with its value
+            return {
+                'id': data.id,
+                'name': data.name,
+                'type': data.type.value,
+                'url': data.url,
+                'created_at': data.created_at,
+                'updated_at': data.updated_at
+            }
+        return data
