@@ -21,7 +21,10 @@ export default function McpServersTab() {
     name: '',
     type: 'stdio',
     url: '',
+    command: '',
+    args: [],
   });
+  const [argsInput, setArgsInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -49,7 +52,10 @@ export default function McpServersTab() {
       name: '',
       type: 'stdio',
       url: '',
+      command: '',
+      args: [],
     });
+    setArgsInput('');
     setEditingServer(null);
   };
 
@@ -59,8 +65,11 @@ export default function McpServersTab() {
       setFormData({
         name: server.name,
         type: server.type,
-        url: server.url,
+        url: server.url || '',
+        command: server.command || '',
+        args: server.args || [],
       });
+      setArgsInput(server.args ? server.args.join(', ') : '');
     } else {
       resetForm();
     }
@@ -73,25 +82,60 @@ export default function McpServersTab() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.url.trim()) {
+    // Validate based on server type
+    if (!formData.name.trim()) {
       toast({
         title: 'Validation Error',
-        description: 'Name and URL are required',
+        description: 'Server name is required',
         variant: 'destructive',
       });
       return;
     }
 
+    if (formData.type === 'stdio') {
+      if (!formData.command?.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'Command is required for stdio servers',
+          variant: 'destructive',
+        });
+        return;
+      }
+    } else if (formData.type === 'http') {
+      if (!formData.url?.trim()) {
+        toast({
+          title: 'Validation Error',
+          description: 'URL is required for HTTP servers',
+          variant: 'destructive',
+        });
+        return;
+      }
+    }
+
+    // Parse args from comma-separated string
+    const submitData: McpServerCreate = {
+      ...formData,
+      args: argsInput.trim() ? argsInput.split(',').map(arg => arg.trim()).filter(arg => arg.length > 0) : undefined,
+    };
+
+    // Clean up undefined fields
+    if (formData.type === 'stdio') {
+      delete submitData.url;
+    } else {
+      delete submitData.command;
+      delete submitData.args;
+    }
+
     try {
       setSubmitting(true);
       if (editingServer) {
-        await apiClient.updateMcpServer(editingServer.id, formData);
+        await apiClient.updateMcpServer(editingServer.id, submitData);
         toast({
           title: 'Success',
           description: 'MCP server updated successfully',
         });
       } else {
-        await apiClient.createMcpServer(formData);
+        await apiClient.createMcpServer(submitData);
         toast({
           title: 'Success',
           description: 'MCP server created successfully',
@@ -176,9 +220,16 @@ export default function McpServersTab() {
                     <Label htmlFor="server-type">Server Type *</Label>
                     <Select
                       value={formData.type}
-                      onValueChange={(value: 'stdio' | 'http') =>
-                        setFormData({ ...formData, type: value })
-                      }
+                      onValueChange={(value: 'stdio' | 'http') => {
+                        // Clear fields when switching types
+                        if (value === 'stdio') {
+                          setFormData(prev => ({ ...prev, type: value, url: '', command: '', args: [] }));
+                          setArgsInput('');
+                        } else {
+                          setFormData(prev => ({ ...prev, type: value, command: '', args: [], url: '' }));
+                          setArgsInput('');
+                        }
+                      }}
                     >
                       <SelectTrigger id="server-type">
                         <SelectValue placeholder="Select type" />
@@ -190,20 +241,52 @@ export default function McpServersTab() {
                     </Select>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="server-url">Server URL *</Label>
-                    <Input
-                      id="server-url"
-                      value={formData.url}
-                      onChange={(e) =>
-                        setFormData({ ...formData, url: e.target.value })
-                      }
-                      placeholder="e.g., http://localhost:8080 or /path/to/command"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      For stdio: path to executable. For http: HTTP endpoint URL.
-                    </p>
-                  </div>
+                  {formData.type === 'stdio' ? (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="server-command">Command *</Label>
+                        <Input
+                          id="server-command"
+                          value={formData.command || ''}
+                          onChange={(e) =>
+                            setFormData({ ...formData, command: e.target.value })
+                          }
+                          placeholder="e.g., npx, python, node"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          The executable command to run (e.g., "npx", "python", "/usr/bin/my-script")
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="server-args">Arguments</Label>
+                        <Input
+                          id="server-args"
+                          value={argsInput}
+                          onChange={(e) => setArgsInput(e.target.value)}
+                          placeholder="e.g., -y, @package/name, --flag"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Comma-separated list of command arguments (optional)
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label htmlFor="server-url">Server URL *</Label>
+                      <Input
+                        id="server-url"
+                        value={formData.url || ''}
+                        onChange={(e) =>
+                          setFormData({ ...formData, url: e.target.value })
+                        }
+                        placeholder="e.g., http://localhost:8080"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        HTTP endpoint URL for the MCP server
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex justify-end gap-3 pt-4">
                     <Button
@@ -258,7 +341,20 @@ export default function McpServersTab() {
                           {server.type === 'stdio' ? 'STDIO' : 'HTTP'}
                         </Badge>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">{server.url}</p>
+                      {server.type === 'stdio' ? (
+                        <>
+                          {server.command && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Command: {server.command}
+                              {server.args && server.args.length > 0 && ` ${server.args.join(' ')}`}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        server.url && (
+                          <p className="text-xs text-muted-foreground mt-1">{server.url}</p>
+                        )
+                      )}
                       <p className="text-xs text-muted-foreground mt-1">
                         Created: {new Date(server.created_at).toLocaleDateString()}
                       </p>

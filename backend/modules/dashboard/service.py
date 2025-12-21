@@ -324,17 +324,27 @@ class DashboardService:
             Created McpServerModel instance
             
         Raises:
-            ValueError: If invalid server type
+            ValueError: If invalid server type or missing required fields
         """
         try:
             server_type = McpServerType(data.type)
         except ValueError:
             raise ValueError(f"Invalid server type: {data.type}. Must be 'stdio' or 'http'")
         
+        # Validate required fields based on server type
+        if server_type == McpServerType.STDIO:
+            if not data.command:
+                raise ValueError("Command is required for stdio servers")
+        elif server_type == McpServerType.STREAMABLE_HTTP:
+            if not data.url:
+                raise ValueError("URL is required for HTTP servers")
+        
         server = McpServerModel(
             name=data.name,
             type=server_type,
-            url=data.url
+            url=data.url,
+            command=data.command,
+            args=data.args
         )
         
         session.add(server)
@@ -362,7 +372,7 @@ class DashboardService:
             Updated McpServerModel instance
             
         Raises:
-            ValueError: If server not found or invalid type
+            ValueError: If server not found, invalid type, or missing required fields
         """
         result = await session.execute(
             select(McpServerModel).where(McpServerModel.id == UUID(server_id))
@@ -372,15 +382,32 @@ class DashboardService:
         if not server:
             raise ValueError(f"MCP server {server_id} not found")
         
+        # Determine the server type after update (use new type if provided, otherwise current)
+        updated_type = server.type
+        if data.type is not None:
+            try:
+                updated_type = McpServerType(data.type)
+            except ValueError:
+                raise ValueError(f"Invalid server type: {data.type}. Must be 'stdio' or 'http'")
+        
         if data.name is not None:
             server.name = data.name
         if data.type is not None:
-            try:
-                server.type = McpServerType(data.type)
-            except ValueError:
-                raise ValueError(f"Invalid server type: {data.type}. Must be 'stdio' or 'http'")
+            server.type = updated_type
         if data.url is not None:
             server.url = data.url
+        if data.command is not None:
+            server.command = data.command
+        if data.args is not None:
+            server.args = data.args
+        
+        # Validate required fields based on server type after update
+        if updated_type == McpServerType.STDIO:
+            if not server.command:
+                raise ValueError("Command is required for stdio servers")
+        elif updated_type == McpServerType.STREAMABLE_HTTP:
+            if not server.url:
+                raise ValueError("URL is required for HTTP servers")
         
         await session.commit()
         await session.refresh(server)

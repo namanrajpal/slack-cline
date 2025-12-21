@@ -125,7 +125,9 @@ class McpServerCreateSchema(BaseModel):
     
     name: str = Field(..., description="Server name")
     type: str = Field(..., description="Server type: stdio or http")
-    url: str = Field(..., description="Server URL")
+    url: Optional[str] = Field(None, description="Server URL (required for HTTP servers)")
+    command: Optional[str] = Field(None, description="Executable command (required for stdio servers)")
+    args: Optional[list[str]] = Field(None, description="Command arguments as array (for stdio servers)")
 
 
 class McpServerUpdateSchema(BaseModel):
@@ -133,7 +135,9 @@ class McpServerUpdateSchema(BaseModel):
     
     name: Optional[str] = Field(None, description="Server name")
     type: Optional[str] = Field(None, description="Server type")
-    url: Optional[str] = Field(None, description="Server URL")
+    url: Optional[str] = Field(None, description="Server URL (for HTTP servers)")
+    command: Optional[str] = Field(None, description="Executable command (for stdio servers)")
+    args: Optional[list[str]] = Field(None, description="Command arguments as array (for stdio servers)")
 
 
 class McpServerResponseSchema(BaseModel):
@@ -144,7 +148,9 @@ class McpServerResponseSchema(BaseModel):
     id: UUID
     name: str
     type: str  # Serialized from McpServerType enum value
-    url: str
+    url: Optional[str] = None
+    command: Optional[str] = None
+    args: Optional[list[str]] = None
     created_at: datetime
     updated_at: datetime
     
@@ -162,6 +168,8 @@ class McpServerResponseSchema(BaseModel):
                 'name': data.name,
                 'type': data.type.value,
                 'url': data.url,
+                'command': data.command,
+                'args': data.args,
                 'created_at': data.created_at,
                 'updated_at': data.updated_at
             }

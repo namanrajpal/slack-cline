@@ -14,6 +14,9 @@ from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from models.mcp_server import McpServerModel, McpServerType
 from sqlalchemy.future import select
+from utils.logging import get_logger
+
+logger = get_logger("agent.tools.factory")
 
 
 def make_bound_tools(workspace_path: str) -> List:
@@ -278,18 +281,28 @@ async def make_mcp_tools() -> List:
         return None
 
     # Build a dictionary of MCP servers for MultiServerMCPClient
-    mcp_config = {
-        "airbnb": {
-            "transport": "stdio",
-            "command": "npx",
-            "args": ["-y", "@openbnb/mcp-server-airbnb",  "--ignore-robots-txt"],
-        }
-    }
+    mcp_config = {}
     for server in mcp_servers:
-        mcp_config[server.name] = {
+        server_config = {
             "transport": McpServerType(server.type).value,
-            "url": server.url,
         }
+        
+        if server.type == McpServerType.STDIO:
+            # For stdio servers, use command and args
+            if not server.command:
+                logger.warning(f"Skipping stdio server '{server.name}': missing command")
+                continue
+            server_config["command"] = server.command
+            if server.args:
+                server_config["args"] = server.args
+        elif server.type == McpServerType.STREAMABLE_HTTP:
+            # For HTTP servers, use url
+            if not server.url:
+                logger.warning(f"Skipping HTTP server '{server.name}': missing url")
+                continue
+            server_config["url"] = server.url
+        
+        mcp_config[server.name] = server_config
 
     client = MultiServerMCPClient(  
         mcp_config

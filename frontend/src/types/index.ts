@@ -101,7 +101,9 @@ export interface McpServer {
   id: string;
   name: string;
   type: 'stdio' | 'http';
-  url: string;
+  url?: string;
+  command?: string;
+  args?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -109,13 +111,17 @@ export interface McpServer {
 export interface McpServerCreate {
   name: string;
   type: 'stdio' | 'http';
-  url: string;
+  url?: string;
+  command?: string;
+  args?: string[];
 }
 
 export interface McpServerUpdate {
   name?: string;
   type?: 'stdio' | 'http';
   url?: string;
+  command?: string;
+  args?: string[];
 }
 
 // Enhanced provider config (extends existing ApiKeyConfig)
